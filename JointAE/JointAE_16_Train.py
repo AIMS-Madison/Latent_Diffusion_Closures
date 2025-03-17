@@ -8,6 +8,7 @@ train.py
 
 ### 标准库
 import os
+import sys
 import warnings
 
 ### 科学计算 & 深度学习库
@@ -37,7 +38,7 @@ warnings.filterwarnings("ignore")
 onedrive_path = os.getenv("ONEDRIVE_PATH")
 if not onedrive_path:
     raise ValueError("OneDrive 路径未找到，请检查环境变量 ONEDRIVE_PATH！")
-
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 ### 检查 CUDA 是否可用
 def get_device():
