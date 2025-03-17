@@ -1,43 +1,62 @@
-import sys
-sys.path.append('C:\\UWMadisonResearch\\Joint_LDM')
-import h5py
+### 标准库
+import os
+import warnings
+
+### 科学计算 & 深度学习库
+import numpy as np
 import torch
+import h5py
 from torch.optim import Adam
 from functools import partial
-from tqdm import trange
+from tqdm import tqdm, trange
+
+### 机器学习可视化库
 import matplotlib.pyplot as plt
 import seaborn as sns
-import matplotlib as mpl
-plt.rc("text", usetex=True)
-mpl.rcParams['text.usetex'] = True
-plt.rcParams["font.family"] = "Times New Roman"
-plt.rcParams["text.latex.preamble"] = r"\usepackage{amsmath}"
 
-import numpy as np
-np.set_printoptions(suppress=False, formatter={'float': '{:.2e}'.format})
-torch.set_printoptions(sci_mode=True)
-
-import warnings
-warnings.filterwarnings("ignore")
-
-from DiffusionModel import (marginal_prob_std, diffusion_coeff, FNO2d_Orig, loss_fn)
+### 自定义模块
+from DiffusionModel import marginal_prob_std, diffusion_coeff, FNO2d_Orig, loss_fn
 from utility import get_sigmas_karras, fro_err, mse_err, set_seed
 from AE_Attention import VariationalAutoEncoder
 
-# Check if CUDA is available
-if torch.cuda.is_available():
-    print("CUDA is available.")
-    device = torch.device('cuda')
-else:
-    print("CUDA is not available.")
-    device = torch.device('cpu')
+### 解决 `matplotlib` 在某些环境下的显示问题
+plt.rc("text", usetex=True)
+plt.rcParams["font.family"] = "Times New Roman"
+plt.rcParams["text.latex.preamble"] = r"\usepackage{amsmath}"
 
-train_name = 'C:\\UWMadisonResearch\\Joint_LDM\\Data\\train_diffusion_nonlinear_sto_v2.h5'
+### 科学计算 & PyTorch 选项
+np.set_printoptions(suppress=False, formatter={'float': '{:.2e}'.format})
+torch.set_printoptions(sci_mode=True)
+warnings.filterwarnings("ignore")
+
+### 读取 OneDrive 环境变量
+onedrive_path = os.getenv("ONEDRIVE_PATH")
+if not onedrive_path:
+    raise ValueError("OneDrive 路径未找到，请检查环境变量！")
+
+### 检查 CUDA 是否可用
+def get_device():
+    if torch.cuda.is_available():
+        print("✅ CUDA 可用，使用 GPU")
+        return torch.device('cuda')
+    else:
+        print("❌ CUDA 不可用，使用 CPU")
+        return torch.device('cpu')
+
+device = get_device()
+
+
+
+
+train_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data", "train_diffusion_nonlinear_sto_v2.h5")
 with h5py.File(train_name, 'r') as file:
     train_nonlinear = torch.tensor(file['train_nonlinear_64'][:18000], device=device)
     train_vorticity = torch.tensor(file['train_vorticity_64'][:18000], device=device)
 
-test_name = 'C:\\UWMadisonResearch\\Joint_LDM\\Data\\test_diffusion_nonlinear_sto_v2.h5'
+plt.imshow(train_nonlinear[0].cpu().numpy())
+plt.show()
+
+test_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data", "test_diffusion_nonlinear_sto_v2.h5")
 with h5py.File(test_name, 'r') as file:
     test_nonlinear = torch.tensor(file['test_nonlinear_64'][:], device=device)
     test_vorticity = torch.tensor(file['test_vorticity_64'][:], device=device)
@@ -82,8 +101,8 @@ AEW_model = VariationalAutoEncoder().to(device)
 diffusion_model = FNO2d_Orig(marginal_prob_std_fn, modes, modes, width, padding, embed_dim = 256, length = 1).to(device)
 
 
-AEG_model.load_state_dict(torch.load('C:\\UWMadisonResearch\\Joint_LDM\\PretrainAE\\AE_6416_nonlinear_reg_sto_v2.pth'))
-AEW_model.load_state_dict(torch.load('C:\\UWMadisonResearch\\Joint_LDM\\PretrainAE\\AE_6416_vorticity_reg_sto_v2.pth'))
+# AEG_model.load_state_dict(torch.load('C:\\UWMadisonResearch\\Joint_LDM\\PretrainAE\\AE_6416_nonlinear_reg_sto_v2.pth'))
+# AEW_model.load_state_dict(torch.load('C:\\UWMadisonResearch\\Joint_LDM\\PretrainAE\\AE_6416_vorticity_reg_sto_v2.pth'))
 # AEG_model.load_state_dict(torch.load('PretrainAE\\AE_6416_nonlinear_reg_v3.pth'))
 # AEW_model.load_state_dict(torch.load('PretrainAE\\AE_6416_vorticity_reg_v3.pth'))
 
@@ -188,9 +207,14 @@ for epoch in tqdm_epoch:
         f"Var Loss: {avg_var_loss / num_items:.5f} | "
     )
 
-torch.save(diffusion_model.state_dict(), 'JointAE\\Joint_diffusion_6416_sto_v2.pth')
-torch.save(AEW_model.state_dict(), 'JointAE\\Joint_AE_Vorticity_6416_sto_v2.pth')
-torch.save(AEG_model.state_dict(), 'JointAE\\Joint_AE_Nonlinear_6416_sto_v2.pth')
+diffusion_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_diffusion_6416_sto_v3.pth")
+torch.save(diffusion_model.state_dict(), diffusion_model_save)
+
+AEG_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Nonlinear_6416_sto_v3.pth")
+torch.save(AEG_model.state_dict(), AEG_model_save)
+
+AEW_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Vorticity_6416_sto_v3.pth")
+torch.save(AEW_model.state_dict(), AEW_model_save)
 
 
 var_err_history = torch.tensor(var_err_history).cpu().numpy()
