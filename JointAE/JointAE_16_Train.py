@@ -57,9 +57,9 @@ device = get_device()
 def load_data():
     # 构造数据文件路径（确保路径中不要多余空格）
     train_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data",
-                              "train_diffusion_nonlinear_sto_v2.h5")
+                              "train_diffusion_nonlinear_sto_v3.h5")
     test_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data",
-                             "test_diffusion_nonlinear_sto_v2.h5")
+                             "test_diffusion_nonlinear_sto_v3.h5")
 
     print(f"Loading training data from {train_name}")
     with h5py.File(train_name, 'r') as file:

@@ -1,31 +1,37 @@
-import sys
-sys.path.append('C:\\UWMadisonResearch\\Joint_LDM')
-import h5py
+### Standard Libraries
+import os
+import warnings
+import time
+
+### Scientific Computing & Deep Learning Libraries
+import numpy as np
 import torch
+import h5py
+import math
+from torch.optim import Adam
 from functools import partial
-from DiffusionModel import (marginal_prob_std, diffusion_coeff, FNO2d_Orig, loss_fn)
+from tqdm import tqdm, trange
+
+### Visualization Libraries
+import matplotlib.pyplot as plt
+import seaborn as sns
+import matplotlib as mpl
+
+### Custom Modules
+from DiffusionModel import marginal_prob_std, diffusion_coeff, FNO2d_Orig, loss_fn
 from utility import get_sigmas_karras, fro_err, mse_err, set_seed
 from AE_Attention import VariationalAutoEncoder
-import math
-import time
-from tqdm import tqdm
-import numpy as np
 
-import matplotlib.pyplot as plt
-import matplotlib as mpl
+### Configure Matplotlib for LaTeX Rendering (if available)
 plt.rc("text", usetex=True)
-mpl.rcParams['text.usetex'] = True
 plt.rcParams["font.family"] = "Times New Roman"
 plt.rcParams["text.latex.preamble"] = r"\usepackage{amsmath}"
 
-import numpy as np
+### Configure NumPy & PyTorch
 np.set_printoptions(suppress=False, formatter={'float': '{:.2e}'.format})
 torch.set_printoptions(sci_mode=True)
-
-import warnings
 warnings.filterwarnings("ignore")
-import seaborn as sns
-from mpl_toolkits.axes_grid1 import make_axes_locatable
+
 
 # Check if CUDA is available
 if torch.cuda.is_available():
@@ -35,6 +41,11 @@ else:
     print("CUDA is not available.")
     device = torch.device('cpu')
 
+
+### Get OneDrive Path from Environment Variables
+onedrive_path = os.getenv("ONEDRIVE_PATH")
+if not onedrive_path:
+    raise ValueError("OneDrive path not found. Please check the environment variable!")
 
 def navier_stokes_2d_nonlinear(a, w0, f, visc, diffusion_sampler,
                            closure = False, delta_t=1e-4, record_steps=1, eval_steps=10):
@@ -124,14 +135,20 @@ diffusion_model = FNO2d_Orig(marginal_prob_std_fn, modes, modes, width, padding,
 # diffusion_model.load_state_dict(torch.load('PretrainAE\\PretrainAE_Diffusion_reg_sto.pth'))
 
 # #
-AEG_model.load_state_dict(torch.load('JointAE\\Joint_AE_Nonlinear_6416_sto_v2.pth'))
-AEW_model.load_state_dict(torch.load('JointAE\\Joint_AE_Vorticity_6416_sto_v2.pth'))
-diffusion_model.load_state_dict(torch.load('JointAE\\Joint_diffusion_6416_sto_v2.pth'))
+
+### Load Pretrained Weights
+diffusion_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_diffusion_6416_sto_v2.pth")
+AEG_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Nonlinear_6416_sto_v2.pth")
+AEW_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Vorticity_6416_sto_v2.pth")
+
+AEG_model.load_state_dict(torch.load(AEG_model_save))
+AEW_model.load_state_dict(torch.load(AEW_model_save))
+diffusion_model.load_state_dict(torch.load(diffusion_model_save))
 
 
 
-Surrogate_file = 'C:\\UWMadisonResearch\\Joint_LDM\\Data\\surrogate_3050_v2.h5'
-with h5py.File(Surrogate_file, 'r') as file:
+Surrogate_file_path = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data", "surrogate_3050_v2.h5")
+with h5py.File(Surrogate_file_path, 'r') as file:
     sol = torch.tensor(file['sol'][:], device=device)
     nonlinear = torch.tensor(file['nonlinear'][:], device=device)
 
@@ -197,7 +214,8 @@ modes = 6
 width = 40
 padding = 0
 diffusion_model = FNO2d_Orig(marginal_prob_std_fn, modes, modes, width, padding, embed_dim = 512, length=1).to(device)
-diffusion_model.load_state_dict(torch.load('OriginalDiffusion/Convection_NoSparse_NoAE_4096_sto_v2.pth'))
+diffusion_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "OriginalDiffusion", "Convection_NoSparse_NoAE_4096_sto_v2.pth")
+diffusion_model.load_state_dict(torch.load(diffusion_model_save))
 def sampler_orig(vorticity_condition,
            score_model,
             spatial_dim,
@@ -221,7 +239,7 @@ def sampler_orig(vorticity_condition,
             x = mean_x + torch.sqrt(step_size) * g[:, None, None] * torch.randn_like(x)
     return mean_x
 
-sample_batch_size = 10
+sample_batch_size = 1
 sample_spatial_dim = 64
 
 sampler_orig = partial(sampler_orig,
@@ -251,9 +269,13 @@ f = 0.1 * (torch.sin(2 * math.pi * (X + Y)) + torch.cos(2 * math.pi * (X + Y)))
 
 set_seed(42)
 
-sol_corrected, sol_t, execution_time = navier_stokes_2d_nonlinear([1, 1], sol[..., 0], f, nu, diffusion_sampler=sampler, closure=True, delta_t=1e-3, record_steps=20000, eval_steps=5)
+sol_corrected, sol_t, execution_time = navier_stokes_2d_nonlinear([1, 1], sol[..., 0], f, nu, diffusion_sampler=sampler_orig, closure=True, delta_t=1e-3, record_steps=20000, eval_steps=5)
 
 fro_err_last = fro_err(sol_corrected[:, :, :, -1], sol[:, :, :, -2])
+for i in range(5):
+    print(f"Time: {sol_t[-i-1]:.2f}s")
+    fro_err_step = fro_err(sol_corrected[:, :, :, i], sol[:, :, :, (i+1) * 4000])
+    print(f"Frobenius Error: {fro_err_step:.4e}")
 
 
 sol_nocorrected, sol_t, execution_time = navier_stokes_2d_nonlinear([1, 1], sol[:1,..., 0], f, nu, diffusion_sampler=None,

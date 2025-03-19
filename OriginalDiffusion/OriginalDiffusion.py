@@ -1,7 +1,9 @@
 import sys
+import os
 import h5py
 import torch
 import numpy as np
+from matplotlib.pyplot import savefig
 from torch.optim import Adam
 from functools import partial
 from tqdm import trange
@@ -24,23 +26,57 @@ else:
     print("CUDA is not available.")
     device = torch.device('cpu')
 
+onedrive_path = os.getenv("ONEDRIVE_PATH")
+
 # Load the data
+train_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data",
+                          "train_diffusion_nonlinear_sto_v4.h5")
+test_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data",
+                         "test_diffusion_nonlinear_sto_v4.h5")
 
-train_name = 'C:\\UWMadisonResearch\\Joint_LDM\\Data\\train_diffusion_nonlinear_sto_v2.h5'
 with h5py.File(train_name, 'r') as file:
-    train_vorticity = torch.tensor(file['train_vorticity_64'][:10000], device=device)
-    train_nonlinear = torch.tensor(file['train_nonlinear_64'][:10000], device=device)
+    train_nonlinear = torch.tensor(file['train_nonlinear_64'][:], device=device)
+    train_vorticity = torch.tensor(file['train_vorticity_64'][:], device=device)
 
-test_name = 'C:\\UWMadisonResearch\\Joint_LDM\\Data\\test_diffusion_nonlinear_sto_v2.h5'
 with h5py.File(test_name, 'r') as file:
-    test_vorticity = torch.tensor(file['test_vorticity_64'][:], device=device)
     test_nonlinear = torch.tensor(file['test_nonlinear_64'][:], device=device)
+    test_vorticity = torch.tensor(file['test_vorticity_64'][:], device=device)
+    test_forcing = torch.tensor(file['test_forcing_64'][:], device=device)
+
+train_loader = torch.utils.data.DataLoader(
+    torch.utils.data.TensorDataset(train_nonlinear, train_vorticity),
+    batch_size=100, shuffle=True
+)
+
+beta = 5e-5
+scaled_forcing = test_forcing * beta
+nonlinear_nonoise = test_nonlinear - scaled_forcing
+
+def predictability_coefficient(H, noise):
+    """Compute R² coefficient between H and its deterministic component"""
+    deterministic = H - noise
+    ss_total = torch.sum((H - torch.mean(H))**2)
+    ss_explained = torch.sum((deterministic - torch.mean(H))**2)
+    r_squared = ss_explained / ss_total
+    return r_squared
+
+predictability_coefficient(test_nonlinear, scaled_forcing)
+
+from skimage.metrics import structural_similarity as ssim
 
 
-train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(train_nonlinear,
-                                                                          train_vorticity),
-                                                                            batch_size=100, shuffle=True)
+def structure_preservation(H, noise):
+    """Compute how much structural information is preserved"""
+    deterministic = H - noise
+    ssim_values = []
 
+    for i in range(H.shape[0]):
+        ssim_val = ssim(H[i].cpu().numpy(), deterministic[i].cpu().numpy(), data_range=H[i].cpu().numpy().max() - H[i].cpu().numpy().min())
+        ssim_values.append(ssim_val)
+
+    return np.mean(ssim_values)
+
+structure_preservation(test_nonlinear, scaled_forcing)
 
 with torch.no_grad():
     current_max_dist = 0
@@ -100,11 +136,14 @@ for epoch in tqdm_epoch:
     loss_history.append(avg_loss_epoch)
     # rel_err_history.append(relative_loss_epoch)
     tqdm_epoch.set_description('Average Loss: {:5f}'.format(avg_loss / num_items))
-torch.save(model.state_dict(), '../Convection_NoSparse_NoAE_4096_sto_v2.pth')
+
+savepath = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "OriginalDiffusion", "Convection_NoSparse_NoAE_4096_sto_v4.pth")
+torch.save(model.state_dict(), savepath)
 
 
-
-model.load_state_dict(torch.load('OriginalDiffusion/Convection_NoSparse_NoAE_4096_sto.pth'))
+model_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "OriginalDiffusion",
+                         "Convection_NoSparse_NoAE_4096_sto_v2.pth")
+model.load_state_dict(torch.load(model_name))
 
 sde_time_min = 1e-3
 sde_time_max = 0.1
@@ -112,7 +151,6 @@ sample_steps = 10
 sample_batch_size = 100
 
 time_noises = get_sigmas_karras(sample_steps, sde_time_min, sde_time_max, device=device)
-time_noises = torch.linspace(sde_time_max, sde_time_min, sample_steps+1, device=device)
 
 def sampler(vorticity_condition,
            score_model,
@@ -134,7 +172,7 @@ def sampler(vorticity_condition,
             grad = score_model(batch_time_step, x, vorticity_condition)
             mean_x = x + (g ** 2)[:, None, None] * grad * step_size
             x = mean_x + torch.sqrt(step_size) * g[:, None, None] * torch.randn_like(x)
-    return mean_x
+    return x
 
 sample_spatial_dim = 64
 
@@ -142,21 +180,41 @@ sampler = partial(sampler,
                   spatial_dim=sample_spatial_dim,
                 marginal_prob_std = marginal_prob_std_fn,
                 diffusion_coeff = diffusion_coeff_fn,
-                batch_size = sample_batch_size,
+                batch_size = 1,
                 num_steps = sample_steps,
                 time_noises = time_noises,
                 device = device)
 
+
+with torch.no_grad():
+    test_sample = sampler(test_vorticity[:1], model)
+
+fro_err_ = fro_err(test_nonlinear[:1], test_sample)
+mse_err_ = mse_err(test_nonlinear[:1], test_sample)
+
+
+
+
+
+
+
 import time
 start = time.time()
 with torch.no_grad():
-    test_sample = sampler(test_vorticity[:sample_batch_size], model)
+    test_sample = sampler(test_vorticity[:1].repeat(sample_batch_size, 1, 1), model)
 end = time.time()
 print('Time elapsed: {}'.format(end - start))
 
+rel_err_col = torch.zeros(sample_batch_size, device=device)
+for i in range(100):
+    rel_err_col[i] = fro_err(test_nonlinear[:1], test_sample[i:i+1])
 
-fro_sample = fro_err(test_nonlinear[:sample_batch_size], test_sample)
-mse_sample = mse_err(test_nonlinear[:sample_batch_size], test_sample)
+plt.plot(rel_err_col.cpu().numpy())
+plt.show()
+
+test_sample_mean = test_sample.mean(dim=0, keepdim=True)
+fro_sample = fro_err(test_nonlinear[:1]- 5e-5 * test_forcing[:1], test_sample_mean[:1])
+mse_sample = mse_err(test_nonlinear[:1], test_sample[:1])
 
 
 
