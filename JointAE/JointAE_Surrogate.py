@@ -43,11 +43,17 @@ else:
 
 
 ### Get OneDrive Path from Environment Variables
-onedrive_path = os.getenv("ONEDRIVE_PATH")
-if not onedrive_path:
-    raise ValueError("OneDrive path not found. Please check the environment variable!")
+onedrive_path = '/mnt/c/Users/dongx/OneDriveUWM'
 
-def navier_stokes_2d_nonlinear(a, w0, f, visc, diffusion_sampler,
+
+Surrogate_file_path = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data", "surrogate_3050_v2.h5")
+with h5py.File(Surrogate_file_path, 'r') as file:
+    sol = torch.tensor(file['sol'][:], device=device)
+    nonlinear = torch.tensor(file['nonlinear'][:], device=device)
+
+sol_start = sol[..., 0:1].repeat(1, 1, 1, 1)
+
+def navier_stokes_2d_nonlinear(a, w0, f, visc, diffusion_sampler, nonlinear_truth,
                            closure = False, delta_t=1e-4, record_steps=1, eval_steps=10):
     # Grid size - must be power of 2
     N1, N2 = w0.size()[-2], w0.size()[-1]
@@ -92,7 +98,18 @@ def navier_stokes_2d_nonlinear(a, w0, f, visc, diffusion_sampler,
 
         if closure == True:
             if i % eval_steps == 0:
-                nonlinear_sample = diffusion_sampler(w)
+                nonlinear_sample_ensemble = diffusion_sampler(w.repeat(1000, 1, 1))
+                nonlinear_sample = torch.mean(nonlinear_sample_ensemble, dim=0, keepdim=True)
+                # fro_err_mean = fro_err(nonlinear_truth[..., i], nonlinear_sample)
+                # print(f"Frobenius Error: {fro_err_mean:.4e}")
+
+                # fro_err_max = 0
+                # for j in range(nonlinear_sample_ensemble.shape[0]):
+                #     fro_err_max_curr = fro_err(nonlinear_truth[..., i], nonlinear_sample_ensemble[j:j+1, ...])
+                #     if fro_err_max_curr > fro_err_max:
+                #         fro_err_max = fro_err_max_curr
+                #         nonlinear_sample = nonlinear_sample_ensemble[j:j+1, ...]
+                # print(f"Frobenius Error: {fro_err_max:.4e}")
             else:
                 nonlinear_sample = nonlinear_sample + torch.randn_like(nonlinear_sample) * 0.00005
 
@@ -107,9 +124,11 @@ def navier_stokes_2d_nonlinear(a, w0, f, visc, diffusion_sampler,
             w_h = ((w_h  + delta_t * f_h
                             - 0.5 * delta_t * visc * lap * w_h)
                            / (1.0 + 0.5 * delta_t * visc * lap))
-
-        if (i+1) % 4000 == 0:
-            j = int((i+1) / 4000) -1
+        if i == 0:
+            sol[..., 0] = w
+            sol_t[0] = t
+        if (i+1) % 5000 == 0:
+            j = int((i+1) / 5000)
             sol[..., j] = w
             sol_t[j] = t
         t += delta_t
@@ -130,13 +149,10 @@ AEG_model = VariationalAutoEncoder().to(device)
 AEW_model = VariationalAutoEncoder().to(device)
 diffusion_model = FNO2d_Orig(marginal_prob_std_fn, modes, modes, width, padding, embed_dim = 256, length=1).to(device)
 
-# AEG_model.load_state_dict(torch.load('PretrainAE\\AE_6416_nonlinear_reg_sto_v2.pth'))
-# AEW_model.load_state_dict(torch.load('PretrainAE\\AE_6416_vorticity_reg_sto.pth'))
-# diffusion_model.load_state_dict(torch.load('PretrainAE\\PretrainAE_Diffusion_reg_sto.pth'))
+AEG_model.load_state_dict(torch.load(os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE", "AE_6416_nonlinear_reg_sto_v2.pth")))
+AEW_model.load_state_dict(torch.load(os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE", "AE_6416_vorticity_reg_sto_v2.pth")))
+diffusion_model.load_state_dict(torch.load(os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE", "PretrainAE_Diffusion_reg_sto_v2.pth")))
 
-# #
-
-### Load Pretrained Weights
 diffusion_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_diffusion_6416_sto_v2.pth")
 AEG_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Nonlinear_6416_sto_v2.pth")
 AEW_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Vorticity_6416_sto_v2.pth")
@@ -144,16 +160,6 @@ AEW_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "
 AEG_model.load_state_dict(torch.load(AEG_model_save))
 AEW_model.load_state_dict(torch.load(AEW_model_save))
 diffusion_model.load_state_dict(torch.load(diffusion_model_save))
-
-
-
-Surrogate_file_path = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data", "surrogate_3050_v2.h5")
-with h5py.File(Surrogate_file_path, 'r') as file:
-    sol = torch.tensor(file['sol'][:], device=device)
-    nonlinear = torch.tensor(file['nonlinear'][:], device=device)
-
-sol = sol[..., 0:1].repeat(10, 1, 1, 1)
-# nonlinear = nonlinear.repeat(2000, 1, 1, 1)
 
 
 AEG_model.eval()
@@ -194,7 +200,7 @@ def sampler(vorticity_condition,
         decoded_x = AEG_model.decode(mean_x)
     return decoded_x
 
-sample_batch_size = 1
+sample_batch_size = 1000
 sample_spatial_dim = 16
 
 sampler = partial(sampler,
@@ -209,6 +215,13 @@ sampler = partial(sampler,
                 time_noises = time_noises,
                 device = device)
 
+
+
+sde_time_min = 1e-3
+sde_time_max = 0.4
+steps = 10
+
+time_noises = get_sigmas_karras(steps, sde_time_min, sde_time_max, device=device)
 
 modes = 6
 width = 40
@@ -239,7 +252,7 @@ def sampler_orig(vorticity_condition,
             x = mean_x + torch.sqrt(step_size) * g[:, None, None] * torch.randn_like(x)
     return mean_x
 
-sample_batch_size = 1
+sample_batch_size = 1000
 sample_spatial_dim = 64
 
 sampler_orig = partial(sampler_orig,
@@ -259,7 +272,6 @@ nu = 1e-3
 
 # Spatial Resolution
 s = 64
-
 # Forcing function: 0.1*(sin(2pi(x+y)) + cos(2pi(x+y)))
 t = torch.linspace(0, 1, s + 1, device=device)
 t = t[0:-1]
@@ -267,19 +279,19 @@ t = t[0:-1]
 X, Y = torch.meshgrid(t, t)
 f = 0.1 * (torch.sin(2 * math.pi * (X + Y)) + torch.cos(2 * math.pi * (X + Y)))
 
-set_seed(42)
+sol_corrected, sol_t, execution_time = navier_stokes_2d_nonlinear([1, 1], sol_start
+[..., 0], f, nu, diffusion_sampler=sampler_orig, nonlinear_truth = nonlinear, closure=True, delta_t=1e-3, record_steps=20000, eval_steps=5)
 
-sol_corrected, sol_t, execution_time = navier_stokes_2d_nonlinear([1, 1], sol[..., 0], f, nu, diffusion_sampler=sampler_orig, closure=True, delta_t=1e-3, record_steps=20000, eval_steps=5)
 
-fro_err_last = fro_err(sol_corrected[:, :, :, -1], sol[:, :, :, -2])
 for i in range(5):
     print(f"Time: {sol_t[-i-1]:.2f}s")
-    fro_err_step = fro_err(sol_corrected[:, :, :, i], sol[:, :, :, (i+1) * 4000])
+    fro_err_step = fro_err(sol_nocorrected[:1, :, :, i], sol[:, :, :, (i) * 5000])
+    mse_err_step = mse_err(sol_nocorrected[:1, :, :, i], sol[:, :, :, (i) * 5000])
     print(f"Frobenius Error: {fro_err_step:.4e}")
+    print(f"MSE Error: {mse_err_step:.4e}")
 
 
-sol_nocorrected, sol_t, execution_time = navier_stokes_2d_nonlinear([1, 1], sol[:1,..., 0], f, nu, diffusion_sampler=None,
-                                                                    closure=False, delta_t=1e-3, record_steps=20000, eval_steps=5)
+sol_nocorrected, sol_t, execution_time = navier_stokes_2d_nonlinear([1, 1], sol_start[:1000,..., 0], f, nu, diffusion_sampler=None, nonlinear_truth = None, closure=False, delta_t=1e-3, record_steps=20000, eval_steps=5)
 
 
 
@@ -434,8 +446,35 @@ plt.savefig(
 
 
 
+# Time values in seconds for the x-axis
+time_values = [30, 35, 40, 45, 50]
+single_pcdm = [0, 0.0314, 0.0766, 0.1192, 0.1524]
+mean_pcdm = [0, 0.0192, 0.0463, 0.0652, 0.0781 ]
+single_lcdm = [0, 0.0237, 0.0683, 0.0874, 0.0995 ]
+mean_lcdm = [0, 0.0224, 0.0564, 0.0723, 0.0849 ]
 
-
+fig, ax = plt.subplots(1, 1, figsize=(54, 36))
+plt.subplots_adjust(left=0.111, right=0.889, top=0.88, bottom=0.15, wspace=0.333)
+fs = 60
+# MSE Plot
+ax.plot(time_values, single_pcdm, marker='o', linestyle=":", markersize=10, linewidth=6, label=f"Single P-CDM")
+ax.plot(time_values, mean_pcdm, marker='o', linestyle="--", markersize=10, linewidth=6, label=f"Mean P-CDM")
+ax.plot(time_values, single_lcdm, marker='o', linestyle="-.", markersize=10, linewidth=6, label=f"Single L-CDM")
+ax.plot(time_values, mean_lcdm, marker='o', linestyle="-", markersize=10, linewidth=6, label=f"Mean L-CDM")
+ax.set_title(r"$D_{\text{RE}}$ \text{Comparison}", fontsize=fs, pad=16)
+ax.set_xlabel(r"$t$", fontsize=fs)
+ax.set_ylabel(r"$D_{\text{RE}}$", fontsize=fs)
+ax.set_xticks([30, 35, 40, 45, 50])
+ax.set_yticks([0.00, 0.06, 0.12, 0.18])
+ax.tick_params(axis='both', which='major', labelsize=fs, width=2, length=14)
+for spine in ax.spines.values():
+    spine.set_linewidth(2)
+# Create a shared legend at the top center, outside the axes
+handles, labels = ax.get_legend_handles_labels()
+lege = fig.legend(handles, labels, loc='upper center', ncol=4, fontsize=fs,
+                    bbox_to_anchor=(0.5, 1), fancybox=False, edgecolor="black")
+lege.get_frame().set_linewidth(2)
+plt.show()
 
 
 import matplotlib.gridspec as gridspec
@@ -445,42 +484,49 @@ time_values = [30, 35, 40, 45, 50]
 
 # MSE and RMSE data for simulations
 
-sim_vort_mse_II = [0, 8.4080e-05, 2.0721e-04, 3.9233e-04, 1.2893e-03 ]
-sim_vort_rmse_II = [0, 1.0044e-02, 1.5738e-02, 2.2017e-02, 4.0336e-02 ]
-sim_vort_mse_III = [0, 1.5680e-03, 1.5416e-03, 6.2521e-03, 8.2225e-03 ]
-sim_vort_rmse_III = [0, 4.3053e-02, 4.2819e-02, 8.7477e-02, 1.2425e-01 ]
-sim_vort_mse_IV = [0, 1.5339e-04, 6.4931e-04, 1.0665e-03, 2.6753e-03 ]
-sim_vort_rmse_IV = [0, 1.3518e-02, 2.7953e-02, 3.6438e-02, 5.8637e-02 ]
+sim_vort_rmse_pcdm = [0, 4.0708e-02, 6.5192e-02, 1.0772e-01, 1.2765e-01]
+sim_vort_mse_pcdm = [0, 1.7156e-03, 4.2562e-03, 1.1494e-02, 1.6236e-02]
+
+sim_vort_rmse_pcdm_ens = [0, 1.9592e-02, 3.9259e-02, 5.3989e-02, 7.4100e-02]
+sim_vort_mse_pcdm_ens = [0, 3.9879e-04, 1.5659e-03, 2.9318e-03, 5.5015e-03]
 
 
+sim_vort_rmse_joint = [0, 3.5634e-02 ,4.6984e-02 ,9.7719e-02, 1.1485e-01]
+sim_vort_mse_joint = [0 ,1.3266e-03 ,2.2466e-03 ,9.6691e-03, 1.3292e-02]
 
+sim_vort_rmse_joint_ens = [0, 2.0646e-02, 4.2939e-02, 6.6262e-02, 8.3996e-02]
+sim_vort_mse_joint_ens = [0 ,5.7757e-04, 1.8671e-03 ,4.8354e-03, 7.8113e-03]
 
 
 # Create a figure with two subplots in a 42x12 inch figure.
-fig, axs = plt.subplots(1, 2, figsize=(42, 12))
+fig, axs = plt.subplots(1, 2, figsize=(54, 18))
+# Reserve space: left/right margins, a top margin (82% of height for axes) and a bottom margin (15%)
+# wspace=0.333 controls the space between the two subplots.
 plt.subplots_adjust(left=0.111, right=0.889, top=0.748, bottom=0.15, wspace=0.333)
 
 fs = 60
 
 # MSE Plot
 ax0 = axs[0]
-ax0.plot(time_values, sim_vort_mse_II, marker='o', linestyle=":", markersize=10, linewidth=6, label=f"Simulation II")
-ax0.plot(time_values, sim_vort_mse_III, marker='o', linestyle="--", markersize=10, linewidth=6, label=f"Simulation III")
-ax0.plot(time_values, sim_vort_mse_IV, marker='o', linestyle="-.", markersize=10, linewidth=6, label=f"Simulation IV")
+ax0.plot(time_values, sim_vort_mse_pcdm, marker='o', linestyle=":", markersize=10, linewidth=6, label=f"Single P-CDM")
+ax0.plot(time_values, sim_vort_mse_pcdm_ens, marker='o', linestyle="--", markersize=10, linewidth=6, label=f"Ensemble P-CDM")
+ax0.plot(time_values, sim_vort_mse_joint, marker='o', linestyle="-.", markersize=10, linewidth=6, label=f"Single Joint L-CDM")
+ax0.plot(time_values, sim_vort_mse_joint_ens, marker='o', linestyle="-", markersize=10, linewidth=6, label=f"Ensemble Joint L-CDM")
 ax0.set_title(r"$D_{\text{MSE}}$ \text{Comparison}", fontsize=fs, pad=16)
 ax0.set_xlabel(r"$t$", fontsize=fs)
 ax0.set_ylabel(r"$D_{\text{MSE}}$", fontsize=fs)
 ax0.set_xticks([30, 35, 40, 45, 50])
-ax0.set_yticks([0.000, 0.003, 0.006, 0.009])
+ax0.set_yticks([0.000, 0.01, 0.02])
 ax0.tick_params(axis='both', which='major', labelsize=fs, width=2, length=14)
 for spine in ax0.spines.values():
     spine.set_linewidth(2)
 
 # RMSE Plot
 ax1 = axs[1]
-ax1.plot(time_values, sim_vort_rmse_II, marker='o', linestyle=":", markersize=10, linewidth=6, label=f"Simulation II")
-ax1.plot(time_values, sim_vort_rmse_III, marker='o', linestyle="--", markersize=10, linewidth=6, label=f"Simulation III")
-ax1.plot(time_values, sim_vort_rmse_IV, marker='o', linestyle="-.", markersize=10, linewidth=6, label=f"Simulation IV")
+ax1.plot(time_values, sim_vort_rmse_pcdm, marker='o', linestyle=":", markersize=10, linewidth=6, label=f"Single P-CDM")
+ax1.plot(time_values, sim_vort_rmse_pcdm_ens, marker='o', linestyle="--", markersize=10, linewidth=6, label=f"Ensemble P-CDM")
+ax1.plot(time_values, sim_vort_rmse_joint, marker='o', linestyle="-.", markersize=10, linewidth=6, label=f"Single Joint L-CDM")
+ax1.plot(time_values, sim_vort_rmse_joint_ens, marker='o', linestyle="-", markersize=10, linewidth=6, label=f"Ensemble Joint L-CDM")
 ax1.set_title(r"$D_{\text{RE}}$ \text{Comparison}", fontsize=fs, pad=16)
 ax1.set_xlabel(r"$t$", fontsize=fs)
 ax1.set_ylabel(r"$D_{\text{RE}}$", fontsize=fs)
@@ -492,10 +538,10 @@ for spine in ax1.spines.values():
 
 # Create a shared legend at the top center, outside the axes
 handles, labels = ax0.get_legend_handles_labels()
-lege = fig.legend(handles, labels, loc='upper center', ncol=3, fontsize=fs,
+lege = fig.legend(handles, labels, loc='upper center', ncol=4, fontsize=fs,
                   bbox_to_anchor=(0.5, 1), fancybox=False, edgecolor="black")
 lege.get_frame().set_linewidth(2)
 
 # Save the figure as a PDF ensuring nothing overlaps
-plt.savefig('C:\\UWMadisonResearch\\Joint_LDM\\Plots\\MSE_RE_Comparison_H.png', dpi=300)
+# plt.savefig('C:\\UWMadisonResearch\\SBM_FNO_Closure\\Plots\\MSE_RE_Comparison_G.png', dpi=300)
 plt.show()

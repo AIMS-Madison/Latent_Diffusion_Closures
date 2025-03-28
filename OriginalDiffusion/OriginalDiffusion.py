@@ -13,7 +13,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib as mpl
 plt.rc("text", usetex=True)
-mpl.rcParams['text.usetex'] = True
 plt.rcParams["font.family"] = "Times New Roman"
 plt.rcParams["text.latex.preamble"] = r"\usepackage{amsmath}"
 
@@ -26,11 +25,11 @@ else:
     print("CUDA is not available.")
     device = torch.device('cpu')
 
-onedrive_path = os.getenv("ONEDRIVE_PATH")
+onedrive_path = '/mnt/c/Users/dongx/OneDriveUWM'
 
 # Load the data
 train_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data",
-                          "train_diffusion_nonlinear_sto_v4.h5")
+                          "train_diffusion_nonlinear_sto_v.h5")
 test_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data",
                          "test_diffusion_nonlinear_sto_v4.h5")
 
@@ -52,15 +51,57 @@ beta = 5e-5
 scaled_forcing = test_forcing * beta
 nonlinear_nonoise = test_nonlinear - scaled_forcing
 
-def predictability_coefficient(H, noise):
-    """Compute R² coefficient between H and its deterministic component"""
-    deterministic = H - noise
-    ss_total = torch.sum((H - torch.mean(H))**2)
-    ss_explained = torch.sum((deterministic - torch.mean(H))**2)
-    r_squared = ss_explained / ss_total
-    return r_squared
+test_nonlinear_onesnap = nonlinear_nonoise[1:2, :, :]
+test_nonlinear_onesnap_noise = torch.zeros(1000, 64, 64, device=device)
+for i in range(1000):
+    test_nonlinear_onesnap_noise[i:i + 1, :, :] = test_nonlinear_onesnap + scaled_forcing[i:i + 1, :, :]
 
-predictability_coefficient(test_nonlinear, scaled_forcing)
+def total_variance_torch(data):
+    """
+    Compute the total variance (trace of the covariance matrix) of data using PyTorch.
+
+    Parameters:
+    data (torch.Tensor): Data tensor of shape (N, 4096)
+
+    Returns:
+    torch.Tensor: The total variance of the data.
+    """
+    N = data.shape[0]
+    # Compute the mean over samples (dim=0)
+    mean = torch.mean(data, dim=0, keepdim=True)
+    # Center the data
+    data_centered = data - mean
+    # Compute covariance matrix using the unbiased estimator
+    cov_matrix = (data_centered.T @ data_centered) / (N - 1)
+    # Total variance is the trace of the covariance matrix
+    total_var = torch.trace(cov_matrix)
+    return total_var
+
+# Flatten to (N, 4096)
+H_torch_flat = test_nonlinear_onesnap_noise.view(1000, -1)
+
+
+total_var_H_torch = total_variance_torch(H_torch_flat)
+
+
+print("Total Variance of H (PyTorch):", total_var_H_torch.item())
+
+
+var_field = torch.var(test_nonlinear_onesnap_noise, dim=0)
+var_field_ranked_index = torch.sort(var_field.view(4096, -1), dim=0, descending=True)[0]
+
+plt.plot(var_field_ranked_index.cpu().numpy())
+plt.title('Variance of H')
+plt.xlabel('Rank')
+plt.ylabel('Variance')
+plt.show()
+
+rel_err = fro_err(test_nonlinear_onesnap, test_nonlinear_onesnap_noise[1:2])
+
+
+
+
+
 
 from skimage.metrics import structural_similarity as ssim
 
@@ -77,6 +118,9 @@ def structure_preservation(H, noise):
     return np.mean(ssim_values)
 
 structure_preservation(test_nonlinear, scaled_forcing)
+
+noise_fro_err = fro_err(nonlinear_nonoise, test_nonlinear)
+noise_mse_err = mse_err(nonlinear_nonoise, test_nonlinear)
 
 with torch.no_grad():
     current_max_dist = 0
@@ -137,7 +181,7 @@ for epoch in tqdm_epoch:
     # rel_err_history.append(relative_loss_epoch)
     tqdm_epoch.set_description('Average Loss: {:5f}'.format(avg_loss / num_items))
 
-savepath = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "OriginalDiffusion", "Convection_NoSparse_NoAE_4096_sto_v4.pth")
+savepath = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "OriginalDiffusion", "Convection_NoSparse_NoAE_4096_sto_v5.pth")
 torch.save(model.state_dict(), savepath)
 
 
@@ -146,9 +190,9 @@ model_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Orig
 model.load_state_dict(torch.load(model_name))
 
 sde_time_min = 1e-3
-sde_time_max = 0.1
+sde_time_max = 0.4
 sample_steps = 10
-sample_batch_size = 100
+sample_batch_size = 1000
 
 time_noises = get_sigmas_karras(sample_steps, sde_time_min, sde_time_max, device=device)
 
@@ -180,41 +224,133 @@ sampler = partial(sampler,
                   spatial_dim=sample_spatial_dim,
                 marginal_prob_std = marginal_prob_std_fn,
                 diffusion_coeff = diffusion_coeff_fn,
-                batch_size = 1,
+                batch_size = sample_batch_size,
                 num_steps = sample_steps,
                 time_noises = time_noises,
                 device = device)
 
 
 with torch.no_grad():
-    test_sample = sampler(test_vorticity[:1], model)
+    test_sample = sampler(test_vorticity[:sample_batch_size], model)
 
-fro_err_ = fro_err(test_nonlinear[:1], test_sample)
-mse_err_ = mse_err(test_nonlinear[:1], test_sample)
-
-
+fro_err_ = fro_err(test_nonlinear[:sample_batch_size], test_sample)
+mse_err_ = mse_err(test_nonlinear[:sample_batch_size], test_sample)
 
 
 
 
 
+
+index = 10
 import time
 start = time.time()
 with torch.no_grad():
-    test_sample = sampler(test_vorticity[:1].repeat(sample_batch_size, 1, 1), model)
+    test_sample = sampler(test_vorticity[index:index+1].repeat(sample_batch_size, 1, 1), model)
 end = time.time()
 print('Time elapsed: {}'.format(end - start))
 
 rel_err_col = torch.zeros(sample_batch_size, device=device)
-for i in range(100):
-    rel_err_col[i] = fro_err(test_nonlinear[:1], test_sample[i:i+1])
+for i in range(sample_batch_size):
+    rel_err_col[i] = fro_err(test_nonlinear[index:index+1], test_sample[i:i+1])
 
 plt.plot(rel_err_col.cpu().numpy())
 plt.show()
 
 test_sample_mean = test_sample.mean(dim=0, keepdim=True)
-fro_sample = fro_err(test_nonlinear[:1]- 5e-5 * test_forcing[:1], test_sample_mean[:1])
-mse_sample = mse_err(test_nonlinear[:1], test_sample[:1])
+fro_sample = fro_err(test_nonlinear[index:index+1], test_sample_mean[0:1])
+fro_sample_nonoise = fro_err(test_nonlinear[index:index+1]-1e-4 * test_forcing[index:index+1], test_sample_mean[0:1])
+mse_sample = mse_err(test_nonlinear[index:index+1], test_sample[index:index+1])
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.fftpack import fft2, fftshift
+import matplotlib.colors as colors
+
+
+def calculate_fluctuation_spectrum(samples):
+    """
+    Calculate the energy spectrum of fluctuations for a set of 2D samples.
+
+    Parameters:
+    ----------
+    samples : ndarray
+        Samples array of shape (n_samples, nx, ny)
+
+    Returns:
+    -------
+    wavenumbers : ndarray
+        1D array of wavenumbers
+    spectrum : ndarray
+        1D array of fluctuation energy values corresponding to wavenumbers
+    """
+    n_samples, nx, ny = samples.shape
+
+    # Calculate mean across all samples
+    mean_field = np.mean(samples, axis=0)
+
+    # Compute 2D FFT of fluctuations for each sample and average the power spectra
+    k_spectrum = np.zeros((nx, ny))
+
+    for i in range(n_samples):
+        # Compute fluctuation (difference from mean)
+        fluctuation = samples[i] - mean_field
+
+        # 2D FFT of the fluctuation
+        fft_fluctuation = fftshift(fft2(fluctuation))
+
+        # Power spectrum (squared magnitude of FFT)
+        power = np.abs(fft_fluctuation) ** 2
+
+        # Accumulate
+        k_spectrum += power
+
+    # Average over samples
+    k_spectrum /= n_samples
+
+    # Create wavenumber grid
+    kx = np.fft.fftfreq(nx, d=1.0)
+    ky = np.fft.fftfreq(ny, d=1.0)
+
+    # Create 2D grids for kx, ky
+    kx = fftshift(kx)
+    ky = fftshift(ky)
+    kx_grid, ky_grid = np.meshgrid(kx, ky)
+
+    # Calculate magnitude of wavenumber vector at each point
+    k_grid = np.sqrt(kx_grid ** 2 + ky_grid ** 2)
+
+    # Convert to 1D spectrum by averaging over rings of constant k
+    # Create bins of wavenumbers
+    dk = 1.0 / max(nx, ny)  # Wavenumber resolution
+    k_max = np.max(k_grid)
+    k_bins = np.arange(0, k_max + dk, dk)
+
+    # Initialize spectrum
+    spectrum = np.zeros(len(k_bins) - 1)
+
+    # Bin the energy
+    for i in range(len(k_bins) - 1):
+        k_lower = k_bins[i]
+        k_upper = k_bins[i + 1]
+
+        # Find all points in this wavenumber range
+        mask = (k_grid >= k_lower) & (k_grid < k_upper)
+
+        if np.any(mask):
+            spectrum[i] = np.mean(k_spectrum[mask])
+
+    # Wavenumbers for plotting (center of bins)
+    wavenumbers = (k_bins[:-1] + k_bins[1:]) / 2
+
+    return wavenumbers, spectrum
+
+# Example usage (replace with your actual data):
+analyze_model_fluctuations(test_sample.cpu().numpy(), None, None)
+
+
+
+
+
 
 
 
@@ -334,6 +470,7 @@ for ax in axs.flat:
 
 # Adjust layout and save the plot
 plt.subplots_adjust(right=0.85, hspace=0.3, wspace=0.5)
+plt.show()
 plt.savefig(
     'C:\\UWMadisonResearch\\Joint_LDM\\Plots\\PhysicalLDM.png',
     dpi=300,

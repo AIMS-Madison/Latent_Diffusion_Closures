@@ -7,22 +7,27 @@ torch.set_printoptions(sci_mode=True)
 from utility import set_seed, fro_err, mse_err
 from AE_Attention import VariationalAutoEncoder, weights_init
 
+import os
+onedrive_path = os.getenv("ONEDRIVE_PATH")
 
 # Load and prepare data
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-train_name = 'C:\\UWMadisonResearch\\Joint_LDM\\Data\\train_diffusion_nonlinear_sto_v2.h5'
+# Load the data
+train_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data",
+                          "train_diffusion_nonlinear_sto_v5.h5")
+test_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data",
+                         "test_diffusion_nonlinear_sto_v5.h5")
 with h5py.File(train_name, 'r') as file:
     train_nonlinear = torch.tensor(file['train_nonlinear_64'][:], device=device)
     train_vorticity = torch.tensor(file['train_vorticity_64'][:], device=device)
 
-test_name = 'C:\\UWMadisonResearch\\Joint_LDM\\Data\\test_diffusion_nonlinear_sto_v2.h5'
 with h5py.File(test_name, 'r') as file:
     test_nonlinear = torch.tensor(file['test_nonlinear_64'][:], device=device)
     test_vorticity = torch.tensor(file['test_vorticity_64'][:], device=device)
 
-train_loader = torch.utils.data.DataLoader(train_vorticity, batch_size=100, shuffle=True)
-test_loader = torch.utils.data.DataLoader(test_vorticity, batch_size=10, shuffle=False)
+train_loader = torch.utils.data.DataLoader(train_nonlinear, batch_size=100, shuffle=True)
+test_loader = torch.utils.data.DataLoader(test_nonlinear, batch_size=10, shuffle=False)
 
 # Usage example
 model = VariationalAutoEncoder().to(device)
@@ -39,6 +44,9 @@ counter = 0
 
 recon_loss_history = torch.zeros(num_epochs)
 var_loss_history = torch.zeros(num_epochs)
+
+model_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE",
+                         "AE_6416_vorticity_reg_sto_v5.pth")
 
 for epoch in range(num_epochs):
     model.train()
@@ -96,7 +104,7 @@ for epoch in range(num_epochs):
 
     # Learning rate scheduler step
     scheduler.step(test_loss)
-    torch.save(model.state_dict(), 'PretrainAE\\AE_6416_vorticity_reg_sto_v2.pth')
+    torch.save(model.state_dict(), model_name)
     #
     # # Early stopping based on validation loss
     # if test_loss < best_val_loss:

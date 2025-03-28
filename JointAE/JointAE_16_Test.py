@@ -36,9 +36,7 @@ warnings.filterwarnings("ignore")
 # ------------------------------------------------------------------
 
 ### Get OneDrive Path from Environment Variables
-onedrive_path = os.getenv("ONEDRIVE_PATH")
-if not onedrive_path:
-    raise ValueError("OneDrive path not found. Please check the environment variable!")
+onedrive_path = '/mnt/c/Users/dongx/OneDriveUWM'
 
 ### Check CUDA Availability
 def get_device():
@@ -81,9 +79,9 @@ AEW_model = VariationalAutoEncoder().to(device)
 diffusion_model = FNO2d_Orig(marginal_prob_std_fn, modes, modes, width, padding, embed_dim=256, length=1).to(device)
 
 ### Load Pretrained Weights
-diffusion_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_diffusion_6416_sto_v2.pth")
-AEG_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Nonlinear_6416_sto_v2.pth")
-AEW_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Vorticity_6416_sto_v2.pth")
+diffusion_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_diffusion_6416_sto_v3.pth")
+AEG_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Nonlinear_6416_sto_v3.pth")
+AEW_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Vorticity_6416_sto_v3.pth")
 
 diffusion_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE", "PretrainAE_Diffusion_reg_sto_v2.pth")
 AEG_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE", "AE_6416_nonlinear_reg_sto_v2.pth")
@@ -124,14 +122,13 @@ def sampler(vorticity_condition, score_model, spatial_dim, marginal_prob_std, di
             mean_x = x + (g ** 2)[:, None, None] * grad * step_size
             x = mean_x + torch.sqrt(step_size) * g[:, None, None] * torch.randn_like(x)
 
-    return x
+    return mean_x
 
 
 # ------------------------------------------------------------------
 # Sampling Process
 # ------------------------------------------------------------------
-
-sample_batch_size = 100
+sample_batch_size = 1000
 sample_spatial_dim = 16
 
 sampler_fn = partial(sampler,
@@ -143,32 +140,72 @@ sampler_fn = partial(sampler,
                      time_noises=time_noises,
                      device=device)
 
+
 torch.cuda.synchronize()
 start_time = time.time()
 
 with torch.no_grad():
-    test_vorticity_latent = AEW_model.encode(test_vorticity[:1].repeat(sample_batch_size, 1, 1))
+    test_vorticity_latent = AEW_model.encode(test_vorticity[:sample_batch_size])
+    test_nonlinear_latent = AEG_model.encode(test_nonlinear[:sample_batch_size])
     sample_test = sampler_fn(test_vorticity_latent, diffusion_model)
     sample_pixel = AEG_model.decode(sample_test)
 torch.cuda.synchronize()
 end_time = time.time()
-print(f"Sampling completed in {end_time - start_time:.2f} seconds.")
+print(f"Sampling completed in {end_time - start_time:.4f} seconds.")
+
+fro_err_pixel = fro_err(test_nonlinear[:sample_batch_size], sample_pixel)
+fro_err_latent = fro_err(test_nonlinear_latent, sample_test)
+
+
+torch.cuda.synchronize()
+start_time = time.time()
+
+index = 10
+with torch.no_grad():
+    test_vorticity_latent = AEW_model.encode(test_vorticity[index:index+1].repeat(sample_batch_size, 1, 1))
+    test_nonlinear_latent = AEG_model.encode(test_nonlinear[index:index+1].repeat(sample_batch_size, 1, 1))
+    sample_test = sampler_fn(test_vorticity_latent, diffusion_model)
+    sample_pixel = AEG_model.decode(sample_test)
+
+    sample_test_mean = sample_test.mean(dim=0, keepdim=True)
+    sample_pixel_mean = sample_pixel.mean(dim=0, keepdim=True)
+torch.cuda.synchronize()
+end_time = time.time()
+print(f"Sampling completed in {end_time - start_time:.4f} seconds.")
 
 rel_err_col = torch.zeros(sample_batch_size, device=device)
-for i in range(100):
-    rel_err_col[i] = fro_err(test_nonlinear[:1], sample_pixel[i:i+1])
+for i in range(sample_batch_size):
+    rel_err_col[i] = fro_err(test_nonlinear[index:index+1], sample_pixel[i:i+1])
 
 plt.plot(rel_err_col.cpu().numpy())
 plt.show()
 
+rel_err_latent_col = torch.zeros(sample_batch_size, device=device)
+for i in range(sample_batch_size):
+    rel_err_latent_col[i] = fro_err(test_nonlinear_latent[index:index+1], sample_test[i:i+1])
+
+plt.plot(rel_err_latent_col.cpu().numpy())
+plt.show()
+
+sample_pixel_mean = sample_pixel.mean(dim=0, keepdim=True)
+mean_fro_err = fro_err(test_nonlinear[index:index+1], sample_pixel_mean)
+
+sample_latent_mean = sample_test.mean(dim=0, keepdim=True)
+mean_fro_latent_err = fro_err(test_nonlinear_latent[index:index+1], sample_test_mean)
+
+test_nonlinear_nonoise = test_nonlinear - 5e-5 * test_forcing
+fro_err_noise = fro_err(test_nonlinear_nonoise, test_nonlinear)
+
+
 with torch.no_grad():
-    test_nonlinear_latent = AEG_model.encode(test_nonlinear[:1])
+    test_nonlinear_latent = AEG_model.encode(test_nonlinear[:sample_batch_size])
     test_nonlinear_pixel = AEG_model.decode(test_nonlinear_latent)
+    test_vorticity_latent = AEW_model.encode(test_vorticity[:sample_batch_size])
     test_vorticty_pixel = AEW_model.decode(test_vorticity_latent)
 
 fro_latent = fro_err(test_nonlinear_latent, sample_test)
 mse_latent = mse_err(test_nonlinear_latent, sample_test)
-fro_sample = fro_err(test_nonlinear[:1].repeat(100, 1, 1), sample_pixel)
+fro_sample = fro_err(test_nonlinear[:sample_batch_size]- 1e-4 * test_forcing[:sample_batch_size], sample_pixel)
 mse_sample = mse_err(test_nonlinear[:sample_batch_size], sample_pixel)
 
 fro_AEG = fro_err(test_nonlinear[:sample_batch_size], test_nonlinear_pixel)

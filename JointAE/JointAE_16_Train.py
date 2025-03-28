@@ -35,10 +35,8 @@ torch.set_printoptions(sci_mode=True)
 warnings.filterwarnings("ignore")
 
 ### 读取 OneDrive 路径（在 WSL 中建议手动设置环境变量）
-onedrive_path = os.getenv("ONEDRIVE_PATH")
-if not onedrive_path:
-    raise ValueError("OneDrive 路径未找到，请检查环境变量 ONEDRIVE_PATH！")
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+onedrive_path = '/mnt/c/Users/dongx/OneDriveUWM'
+
 
 ### 检查 CUDA 是否可用
 def get_device():
@@ -57,9 +55,9 @@ device = get_device()
 def load_data():
     # 构造数据文件路径（确保路径中不要多余空格）
     train_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data",
-                              "train_diffusion_nonlinear_sto_v3.h5")
+                              "train_diffusion_nonlinear_sto_v5.h5")
     test_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data",
-                             "test_diffusion_nonlinear_sto_v3.h5")
+                             "test_diffusion_nonlinear_sto_v5.h5")
 
     print(f"Loading training data from {train_name}")
     with h5py.File(train_name, 'r') as file:
@@ -105,8 +103,9 @@ AEG_model = VariationalAutoEncoder().to(device)
 AEW_model = VariationalAutoEncoder().to(device)
 diffusion_model = FNO2d_Orig(marginal_prob_std_fn, modes, modes, width, padding, embed_dim=256, length=1).to(device)
 
+AEG_path = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE", "AE_6416_vorticity_reg_sto_v5.pth")
 # 如果需要加载预训练模型，可以取消下面的注释并调整路径
-# AEG_model.load_state_dict(torch.load('path_to_pretrain_AE_nonlinear.pth'))
+AEG_model.load_state_dict(torch.load(AEG_path, map_location=device))
 # AEW_model.load_state_dict(torch.load('path_to_pretrain_AE_vorticity.pth'))
 
 optimizer = Adam(list(diffusion_model.parameters()) + list(AEW_model.parameters()) + list(AEG_model.parameters()),
@@ -163,15 +162,15 @@ def train():
 
     # 保存模型到 OneDrive
     diffusion_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE",
-                                        "Joint_diffusion_6416_sto_v3.pth")
+                                        "Joint_diffusion_6416_sto_v5.pth")
     torch.save(diffusion_model.state_dict(), diffusion_model_save)
 
     AEG_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE",
-                                  "Joint_AE_Nonlinear_6416_sto_v3.pth")
+                                  "Joint_AE_Nonlinear_6416_sto_v5.pth")
     torch.save(AEG_model.state_dict(), AEG_model_save)
 
     AEW_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE",
-                                  "Joint_AE_Vorticity_6416_sto_v3.pth")
+                                  "Joint_AE_Vorticity_6416_sto_v5.pth")
     torch.save(AEW_model.state_dict(), AEW_model_save)
 
     print("Training complete! Models saved.")
