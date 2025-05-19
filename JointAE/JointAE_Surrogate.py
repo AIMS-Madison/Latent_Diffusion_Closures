@@ -19,7 +19,7 @@ import matplotlib as mpl
 
 ### Custom Modules
 from DiffusionModel import marginal_prob_std, diffusion_coeff, FNO2d_Orig, loss_fn
-from utility import get_sigmas_karras, fro_err, mse_err, set_seed
+from utility import get_sigmas_karras, fro_err, mse_err, set_seed, energy_spectrum
 from AE_Attention import VariationalAutoEncoder
 
 ### Configure Matplotlib for LaTeX Rendering (if available)
@@ -42,8 +42,12 @@ else:
     device = torch.device('cpu')
 
 
+# ------------------------------------------------------------------
+# Environment Configuration
+# ------------------------------------------------------------------
+
 ### Get OneDrive Path from Environment Variables
-onedrive_path = '/mnt/c/Users/dongx/OneDriveUWM'
+onedrive_path = 'C:\\Users\\dongx\\OneDriveUWM'
 
 
 Surrogate_file_path = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data", "surrogate_3050_v2.h5")
@@ -51,7 +55,7 @@ with h5py.File(Surrogate_file_path, 'r') as file:
     sol = torch.tensor(file['sol'][:], device=device)
     nonlinear = torch.tensor(file['nonlinear'][:], device=device)
 
-sol_start = sol[..., 0:1].repeat(1, 1, 1, 1)
+sol_start = sol[..., 0:1].repeat(10, 1, 1, 1)
 
 def navier_stokes_2d_nonlinear(a, w0, f, visc, diffusion_sampler, nonlinear_truth,
                            closure = False, delta_t=1e-4, record_steps=1, eval_steps=10):
@@ -98,8 +102,8 @@ def navier_stokes_2d_nonlinear(a, w0, f, visc, diffusion_sampler, nonlinear_trut
 
         if closure == True:
             if i % eval_steps == 0:
-                nonlinear_sample_ensemble = diffusion_sampler(w.repeat(1000, 1, 1))
-                nonlinear_sample = torch.mean(nonlinear_sample_ensemble, dim=0, keepdim=True)
+                nonlinear_sample = diffusion_sampler(w.repeat(1, 1, 1))
+                # nonlinear_sample = torch.mean(nonlinear_sample_ensemble, dim=0, keepdim=True)
                 # fro_err_mean = fro_err(nonlinear_truth[..., i], nonlinear_sample)
                 # print(f"Frobenius Error: {fro_err_mean:.4e}")
 
@@ -149,10 +153,6 @@ AEG_model = VariationalAutoEncoder().to(device)
 AEW_model = VariationalAutoEncoder().to(device)
 diffusion_model = FNO2d_Orig(marginal_prob_std_fn, modes, modes, width, padding, embed_dim = 256, length=1).to(device)
 
-AEG_model.load_state_dict(torch.load(os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE", "AE_6416_nonlinear_reg_sto_v2.pth")))
-AEW_model.load_state_dict(torch.load(os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE", "AE_6416_vorticity_reg_sto_v2.pth")))
-diffusion_model.load_state_dict(torch.load(os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE", "PretrainAE_Diffusion_reg_sto_v2.pth")))
-
 diffusion_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_diffusion_6416_sto_v2.pth")
 AEG_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Nonlinear_6416_sto_v2.pth")
 AEW_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Vorticity_6416_sto_v2.pth")
@@ -161,13 +161,12 @@ AEG_model.load_state_dict(torch.load(AEG_model_save))
 AEW_model.load_state_dict(torch.load(AEW_model_save))
 diffusion_model.load_state_dict(torch.load(diffusion_model_save))
 
-
 AEG_model.eval()
 AEW_model.eval()
 diffusion_model.eval()
 
 sde_time_min = 1e-3
-sde_time_max = 0.1
+sde_time_max = 0.4
 steps = 10
 
 time_noises = get_sigmas_karras(steps, sde_time_min, sde_time_max, device=device)
@@ -200,7 +199,7 @@ def sampler(vorticity_condition,
         decoded_x = AEG_model.decode(mean_x)
     return decoded_x
 
-sample_batch_size = 1000
+sample_batch_size = 10
 sample_spatial_dim = 16
 
 sampler = partial(sampler,
@@ -252,7 +251,7 @@ def sampler_orig(vorticity_condition,
             x = mean_x + torch.sqrt(step_size) * g[:, None, None] * torch.randn_like(x)
     return mean_x
 
-sample_batch_size = 1000
+sample_batch_size = 10
 sample_spatial_dim = 64
 
 sampler_orig = partial(sampler_orig,
@@ -279,62 +278,334 @@ t = t[0:-1]
 X, Y = torch.meshgrid(t, t)
 f = 0.1 * (torch.sin(2 * math.pi * (X + Y)) + torch.cos(2 * math.pi * (X + Y)))
 
-sol_corrected, sol_t, execution_time = navier_stokes_2d_nonlinear([1, 1], sol_start
+sol_corrected_pcdm, sol_t, execution_time = navier_stokes_2d_nonlinear([1, 1], sol_start
 [..., 0], f, nu, diffusion_sampler=sampler_orig, nonlinear_truth = nonlinear, closure=True, delta_t=1e-3, record_steps=20000, eval_steps=5)
+
+sol_corrected_lcdm, sol_t, execution_time = navier_stokes_2d_nonlinear([1, 1], sol_start
+[..., 0], f, nu, diffusion_sampler=sampler, nonlinear_truth = nonlinear, closure=True, delta_t=1e-3, record_steps=20000, eval_steps=5)
 
 
 for i in range(5):
     print(f"Time: {sol_t[-i-1]:.2f}s")
-    fro_err_step = fro_err(sol_nocorrected[:1, :, :, i], sol[:, :, :, (i) * 5000])
-    mse_err_step = mse_err(sol_nocorrected[:1, :, :, i], sol[:, :, :, (i) * 5000])
+    fro_err_step = fro_err(sol_corrected_lcdm[:1, :, :, i], sol[:, :, :, (i) * 5000])
+    mse_err_step = mse_err(sol_corrected_lcdm[:1, :, :, i], sol[:, :, :, (i) * 5000])
     print(f"Frobenius Error: {fro_err_step:.4e}")
     print(f"MSE Error: {mse_err_step:.4e}")
 
 
-sol_nocorrected, sol_t, execution_time = navier_stokes_2d_nonlinear([1, 1], sol_start[:1000,..., 0], f, nu, diffusion_sampler=None, nonlinear_truth = None, closure=False, delta_t=1e-3, record_steps=20000, eval_steps=5)
+sol_nocorrected, sol_t, execution_time = navier_stokes_2d_nonlinear([1, 1], sol_start[:10,..., 0], f, nu, diffusion_sampler=None, nonlinear_truth = None, closure=False, delta_t=1e-3, record_steps=20000, eval_steps=5)
+
+
+sol_corrected_pcdm[0:1, :, :, 0] = sol[0:1, :, :, 0]
+sol_corrected_lcdm[0:1, :, :, 0] = sol[0:1, :, :, 0]
 
 
 
-import matplotlib.pyplot as plt
 
-# Data from the table
-batch_sizes = [1, 10, 100, 500, 1000, 1500]
-l_cdm_times = [145.49, 160.92, 315.24, 1042.21, 1830.55, 2763.87]
-p_cdm_times = [180.23, 215.74, 824.15, 4225.34, 7567.64, 13820.65]
-no_correction_times = [2.17, 2.22, 2.63, 2.99, 3.03, 5.59]
-fs = 30
+sol_corrected_pcdm[..., 0] = sol[..., 0]
+sol_corrected_lcdm[..., 0] = sol[..., 0]
 
-# Create figure and axes
-fig, ax = plt.subplots(figsize=(21, 12))
-plt.subplots_adjust(left=0.111, right=0.889, top=0.87, bottom=0.15, wspace=0.333)
+fig, axs = plt.subplots(1, 3, figsize=(42, 12), gridspec_kw={'width_ratios': [1, 1, 1]})
+fs=62
+# Flatten the axs array and only use the first 5 subplots
+axs = axs.flatten()
+steps =[0, 2, 4]
+for i, ax in enumerate(axs):  # Use only the first 5 axes
+    index = steps[i]
 
-# Plot data on the axes
-ax.plot(batch_sizes, l_cdm_times, marker='o', linestyle=":", markersize=10, linewidth=6, label='L-CDM')
-ax.plot(batch_sizes, p_cdm_times, marker='o', linestyle="--", markersize=10, linewidth=6, label='P-CDM')
-ax.plot(batch_sizes, no_correction_times, marker='o', linestyle="-.", markersize=10, linewidth=6, label='No Correction')
+    # Compute energy spectra
+    KE32 = energy_spectrum(sol[0:1, :, :, index].cpu(), 1, 1, smooth=False)
+    k32, E32 = KE32['k'], KE32['E']
+    KE_32_PCDM = energy_spectrum(sol_corrected_pcdm[0:1, :, :, index].cpu(), 1, 1, smooth=False)
+    K_32_PCDM, E32_PCDM = KE_32_PCDM['k'], KE_32_PCDM['E']
+    KE_32_LCDM = energy_spectrum(sol_corrected_lcdm[0:1, :, :, index].cpu(), 1, 1, smooth=False)
+    K_32_LCDM, E32_LCDM = KE_32_LCDM['k'], KE_32_LCDM['E']
 
-# Set labels and title with specified fontsize
-ax.set_xlabel("Batch Size (Number of Trajectories)", fontsize=fs)
-ax.set_ylabel("Execution Time (seconds)", fontsize=fs)
-ax.set_title("Execution Time vs. Batch Size", fontsize=fs)
-plt.xticks(fontsize=fs)
-plt.yticks(fontsize=fs)
+    # Plot energy spectra
+    ax.loglog(k32[1:], E32[1:], label=f'Truth', linewidth=6, linestyle=":")
+    ax.loglog(K_32_PCDM[1:], E32_PCDM[1:], label=f'P-CDM', linewidth=6, linestyle="--")
+    ax.loglog(K_32_LCDM[1:], E32_LCDM[1:], label=f'Joint L-CDM', linewidth=6, linestyle="-.")
+    ax.tick_params(axis='both', which='major', length=14, width=2)
+    ax.tick_params(axis='both', which='minor', length=7, width=2)
+    ax.tick_params(axis='x', which='major', pad=12)
 
-# Create a shared legend at the top center, outside the axes
-handles, labels = ax.get_legend_handles_labels()
-lege = fig.legend(handles, labels, loc='upper center', ncol=3, fontsize=fs,
-                  bbox_to_anchor=(0.5, 1), fancybox=False, edgecolor="black")
+    # Add reference line for k^(-3)
+    k_ref = k32[2]   # Reference k point in the middle
+    E_ref = E32[2]
+    k_line = np.linspace(5, 30, 100)
+    E_line = E_ref * (k_line / k_ref) ** (-3)
+    ax.loglog(k_line, E_line, linestyle='solid', label=r'$k^{-3}$', color='red', linewidth=6)
+
+    # Set plot details
+    ax.set_title(f'$t$ = {sol_t[index]+30:.2f}', fontsize=fs)
+    ax.set_xlim(k32[1], 10**3)  # Ensure a minimum of 1 for k
+    ax.tick_params(axis='both', labelsize=fs)
+
+    ax.set_ylim(10**-21, 10**0)
+    ax.set_xlim(None, 1e3)
+    ticks = [10 ** -21, 10 ** -14, 10 ** -7, 10 ** 0]
+
+    # Define corresponding labels (the first label is for the lowest tick, etc.)
+    labels = ['$10^{-21}$', '$10^{-14}$', '$10^{-7}$', '$10^{0}$']
+
+    # Apply the tick positions and labels
+    ax.set_yticks(ticks)
+    # ax.set_yticklabels(labels)
+
+    for spine in ax.spines.values():
+        spine.set_linewidth(2)
+
+    if i == 0:
+        ax.set_ylabel(f'Energy ($E$)', fontsize=fs)
+    if i == 0 or i == 1 or i == 2:
+        ax.set_xlabel(f'Wave number ($k$)', fontsize=fs)
+    if i ==1 or i == 2:
+        ax.get_yaxis().set_ticks([])
+
+handles, labels = axs[0].get_legend_handles_labels()
+lege = fig.legend(handles, labels, loc='upper center', ncol=4, fontsize=fs,bbox_to_anchor=(0.5, 1),
+                  fancybox=False, edgecolor="black")
 lege.get_frame().set_linewidth(2)
-
-# Set the axes (plot) frame linewidth to 2
-for spine in ax.spines.values():
-    spine.set_linewidth(2)
-
+plt.subplots_adjust(top=0.85)
+plt.tight_layout(rect=[0, 0, 1, 0.83])
 plt.savefig(
-    'C:\\UWMadisonResearch\\Joint_LDM\\Plots\\Efficiency.png',
+    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "TKE_Closure_3050.png"),
     dpi=300,
     bbox_inches='tight'
 )
+plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def calculate_energy_spectrum_2d(fields, dx=1.0, dy=None, is_latent=False, original_size=None):
+    """
+    Calculate the energy spectrum for 2D fields, with support for latent representations.
+
+    Parameters:
+    -----------
+    fields : numpy.ndarray
+        Input fields with shape (B, N, N) where B is batch size and N is grid size
+    dx : float, optional
+        Grid spacing in x-direction (default: 1.0)
+    dy : float, optional
+        Grid spacing in y-direction (default: same as dx)
+    is_latent : bool, optional
+        Flag indicating if the input is a latent representation (default: False)
+    original_size : tuple, optional
+        Original domain size (Nx, Ny) before encoding to latent space
+
+    Returns:
+    --------
+    dict
+        Dictionary containing wavenumbers 'k' and energy spectrum 'E'
+        'k' has shape (n_bins,)
+        'E' has shape (B, n_bins) where B is the batch size
+    """
+    if dy is None:
+        dy = dx
+
+    # Get dimensions
+    B, N, M = fields.shape
+    assert N == M, "Fields must be square (NxN)"
+
+    # Compute 2D FFT for each field in the batch
+    fft_fields = np.fft.fftshift(np.fft.fft2(fields), axes=(-2, -1))
+
+    # Create wavenumber grids
+    kx = 2 * np.pi * np.fft.fftshift(np.fft.fftfreq(N, dx))
+    ky = 2 * np.pi * np.fft.fftshift(np.fft.fftfreq(N, dy))
+
+    # Create 2D wavenumber grid using meshgrid
+    kx_grid, ky_grid = np.meshgrid(kx, ky, indexing='ij')
+    k_magnitude = np.sqrt(kx_grid ** 2 + ky_grid ** 2)
+
+    # Calculate energy density in Fourier space
+    energy_density = np.abs(fft_fields) ** 2 / (N * N) ** 2
+
+    # For latent representations, we need to consider the relationship to the original domain
+    if is_latent and original_size is not None:
+        # Scale factor from latent to original
+        original_N, original_M = original_size
+        scale_x = original_N / N
+        scale_y = original_M / M
+
+        # Adjust k_magnitude based on the scaling
+        k_magnitude = k_magnitude * np.sqrt(scale_x * scale_y)
+
+    # Bin the energy by wavenumber magnitude
+    k_max = np.max(k_magnitude)
+    n_bins = N // 2  # Number of bins
+    dk = k_max / n_bins
+
+    # Initialize arrays for binned energy spectrum
+    k_bins = (np.arange(0.5, n_bins) + 0.5) * dk  # Center of each bin
+    energy_spectrum = np.zeros((B, n_bins))
+
+    # For each batch item
+    for b in range(B):
+        # Create histogram for energy binning
+        bin_edges = np.linspace(0, k_max, n_bins + 1)
+
+        # Exclude k=0 (DC component)
+        mask = k_magnitude > 0
+
+        # Use histogram weighted by energy density to compute spectrum
+        hist, _ = np.histogram(k_magnitude[mask], bins=bin_edges,
+                               weights=energy_density[b][mask])
+        counts, _ = np.histogram(k_magnitude[mask], bins=bin_edges)
+
+        # Avoid division by zero
+        valid_bins = counts > 0
+        hist[valid_bins] /= counts[valid_bins]
+
+        # Apply geometric factor for 2D spectrum (multiply by 2πk)
+        energy_spectrum[b] = hist * 2 * np.pi * k_bins
+
+    return {
+        'k': k_bins,
+        'E': energy_spectrum
+    }
+
+k_truth = np.array([8.89e+00, 1.78e+01, 2.67e+01, 3.55e+01, 4.44e+01, 5.33e+01,
+       6.22e+01, 7.11e+01, 8.00e+01, 8.89e+01, 9.77e+01, 1.07e+02,
+       1.16e+02, 1.24e+02, 1.33e+02, 1.42e+02, 1.51e+02, 1.60e+02,
+       1.69e+02, 1.78e+02, 1.87e+02, 1.95e+02, 2.04e+02, 2.13e+02,
+       2.22e+02, 2.31e+02, 2.40e+02, 2.49e+02, 2.58e+02, 2.67e+02,
+       2.75e+02, 2.84e+02])
+E_truth_list = [np.array([2.75e+00, 5.75e+00, 1.41e-01, 1.20e-02, 1.33e-03, 1.11e-04,
+       8.64e-06, 4.41e-07, 2.44e-08, 1.47e-09, 1.05e-10, 7.58e-12,
+       4.52e-13, 2.27e-14, 3.64e-15, 4.33e-16, 5.21e-17, 2.12e-18,
+       2.14e-19, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00,
+       0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00,
+       0.00e+00, 0.00e+00]),
+                np.array([4.15e+00, 4.68e+00, 1.50e-01, 1.35e-02, 2.63e-03, 2.86e-04,
+       3.67e-05, 3.36e-06, 2.92e-07, 1.87e-08, 8.86e-10, 4.47e-11,
+       1.97e-12, 1.51e-13, 7.75e-15, 5.75e-15, 3.75e-15, 1.99e-15,
+       9.85e-16, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00,
+       0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00,
+       0.00e+00, 0.00e+00]),
+                np.array([4.53e+00, 4.31e+00, 1.29e-01, 1.28e-02, 2.53e-03, 3.07e-04,
+       4.36e-05, 4.53e-06, 4.56e-07, 3.46e-08, 1.94e-09, 8.86e-11,
+       3.89e-12, 2.06e-13, 1.16e-14, 5.75e-15, 3.75e-15, 1.99e-15,
+       9.85e-16, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00,
+       0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00,
+       0.00e+00, 0.00e+00])]
+
+E_pcdm_list = [np.array([2.75e+00, 5.75e+00, 1.41e-01, 1.20e-02, 1.33e-03, 1.11e-04,
+       8.64e-06, 4.41e-07, 2.44e-08, 1.47e-09, 1.05e-10, 7.58e-12,
+       4.52e-13, 2.27e-14, 3.64e-15, 4.33e-16, 5.21e-17, 2.12e-18,
+       2.14e-19, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00,
+       0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00,
+       0.00e+00, 0.00e+00]),
+                np.array([4.19e+00, 4.75e+00, 1.46e-01, 1.35e-02, 2.73e-03, 2.96e-04,
+       3.64e-05, 3.48e-06, 3.51e-07, 3.20e-08, 6.78e-09, 2.03e-09,
+       1.11e-09, 5.60e-10, 4.72e-10, 4.28e-10, 3.05e-10, 2.95e-10,
+       2.81e-10, 2.67e-10, 2.51e-10, 2.30e-10, 1.92e-10, 2.11e-10,
+       1.64e-10, 2.26e-10, 2.44e-10, 1.35e-10, 2.01e-10, 9.24e-11,
+       1.75e-10, 1.09e-10]),
+                np.array([4.72e+00, 4.42e+00, 1.22e-01, 1.32e-02, 2.57e-03, 3.28e-04,
+       4.22e-05, 4.22e-06, 4.38e-07, 4.38e-08, 7.88e-09, 2.39e-09,
+       1.30e-09, 6.15e-10, 4.78e-10, 3.93e-10, 3.58e-10, 2.84e-10,
+       3.04e-10, 2.77e-10, 2.56e-10, 2.05e-10, 2.70e-10, 2.00e-10,
+       2.42e-10, 1.88e-10, 1.84e-10, 2.22e-10, 2.62e-10, 1.34e-10,
+       1.89e-10, 2.22e-10])]
+
+E_lcdm_list = [np.array([2.75e+00, 5.75e+00, 1.41e-01, 1.20e-02, 1.33e-03, 1.11e-04,
+       8.64e-06, 4.41e-07, 2.44e-08, 1.47e-09, 1.05e-10, 7.58e-12,
+       4.52e-13, 2.27e-14, 3.64e-15, 4.33e-16, 5.21e-17, 2.12e-18,
+       2.14e-19, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00,
+       0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00, 0.00e+00,
+       0.00e+00, 0.00e+00]),
+                np.array([4.31e+00, 4.67e+00, 1.42e-01, 1.38e-02, 2.55e-03, 3.01e-04,
+       3.87e-05, 3.68e-06, 3.67e-07, 5.93e-08, 3.64e-08, 1.41e-08,
+       1.25e-08, 6.23e-09, 4.70e-09, 4.04e-09, 2.83e-09, 2.35e-09,
+       1.11e-09, 1.41e-09, 7.20e-10, 7.05e-10, 4.11e-10, 3.78e-11,
+       2.60e-11, 2.56e-11, 2.54e-11, 2.50e-11, 2.38e-11, 2.63e-11,
+       2.12e-11, 1.58e-11]),
+                np.array([4.82e+00, 4.31e+00, 1.20e-01, 1.49e-02, 2.69e-03, 3.69e-04,
+       5.20e-05, 5.77e-06, 6.46e-07, 1.22e-07, 4.48e-08, 2.90e-08,
+       1.62e-08, 1.03e-08, 7.38e-09, 5.90e-09, 3.78e-09, 3.21e-09,
+       2.22e-09, 2.07e-09, 1.30e-09, 1.33e-09, 1.02e-09, 8.32e-11,
+       3.55e-11, 2.33e-11, 1.89e-11, 1.18e-11, 8.40e-12, 5.24e-12,
+       6.04e-12, 2.59e-12])]
+
+
+fig, axs = plt.subplots(1, 3, figsize=(42, 12), gridspec_kw={'width_ratios': [1, 1, 1]})
+fs=62
+# Flatten the axs array and only use the first 5 subplots
+axs = axs.flatten()
+for i, ax in enumerate(axs):  # Use only the first 5 axes
+    # Plot energy spectra
+    ax.loglog(k_truth, E_truth_list[i], label=f'Ground Truth', linewidth=6, linestyle="-.")
+    ax.loglog(k_truth, E_pcdm_list[i], label=f'P-CDM', linewidth=6, linestyle="--")
+    ax.loglog(k_truth, E_lcdm_list[i], label=f'Joint L-CDM', linewidth=6, linestyle=":")
+    ax.tick_params(axis='x', which='major', length=16, width=2, labelsize=fs)
+    ax.tick_params(axis='x', which='minor', length=8, width=2, labelsize=0)
+    ax.tick_params(axis='y', which='major', length=16, width=2, labelsize=fs)
+    ax.tick_params(axis='y', which='minor', length=8, width=2)
+
+    # # Add reference line for k^(-3)
+    # k_ref = k_truth[2]   # Reference k point in the middle
+    # E_ref = E_truth[2]
+    # k_line = np.linspace(7, 50, 100)
+    # E_line = E_ref * (k_line / k_ref) ** (-3)
+    # ax.loglog(k_line, E_line, linestyle='solid', label=r'$k^{-3}$', color='red', linewidth=6)
+
+    # Set plot details
+    ax.set_title(f'$t$ = {sol_t[i*2]+30:.2f}', fontsize=fs)
+    # ax.set_xlim(k_truth[1], 10**3)  # Ensure a minimum of 1 for k
+    # ax.tick_params(axis='both', labelsize=fs)
+
+    ax.set_ylim(10**-22, 10**2)
+    ax.set_xlim(None, 3 * 1e2)
+    ticks = [10 ** -22, 10 ** -15, 10 ** -8, 10 ** 2]
+    #
+    # # Define corresponding labels (the first label is for the lowest tick, etc.)
+    # labels = ['$10^{-21}$', '$10^{-14}$', '$10^{-7}$', '$10^{0}$']
+
+    # Apply the tick positions and labels
+    # ax.set_yticks(ticks)
+    # ax.set_yticklabels(labels)
+
+    for spine in ax.spines.values():
+        spine.set_linewidth(2)
+
+    if i == 0:
+        ax.set_ylabel(f'Energy ($E$)', fontsize=fs)
+    if i == 0 or i == 1 or i == 2:
+        ax.set_xlabel(f'Wave number ($k$)', fontsize=fs)
+    if i ==1 or i == 2:
+        ax.get_yaxis().set_ticks([])
+
+handles, labels = axs[0].get_legend_handles_labels()
+lege = fig.legend(handles, labels, loc='upper center', ncol=4, fontsize=fs,bbox_to_anchor=(0.5, 1.),
+                  fancybox=False, edgecolor="black")
+lege.get_frame().set_linewidth(2)
+plt.subplots_adjust(top=0.83)
+plt.tight_layout(rect=[0, 0, 1, 0.83])
+
+plt.savefig(
+    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "TKE_Closure_3050.png"),
+    dpi=300,
+    bbox_inches='tight'
+)
+plt.show()
+
+
+
+
+
 
 
 
@@ -459,8 +730,8 @@ fs = 60
 # MSE Plot
 ax.plot(time_values, single_pcdm, marker='o', linestyle=":", markersize=10, linewidth=6, label=f"Single P-CDM")
 ax.plot(time_values, mean_pcdm, marker='o', linestyle="--", markersize=10, linewidth=6, label=f"Mean P-CDM")
-ax.plot(time_values, single_lcdm, marker='o', linestyle="-.", markersize=10, linewidth=6, label=f"Single L-CDM")
-ax.plot(time_values, mean_lcdm, marker='o', linestyle="-", markersize=10, linewidth=6, label=f"Mean L-CDM")
+ax.plot(time_values, single_lcdm, marker='o', linestyle="-.", markersize=10, linewidth=6, label=f"Single Joint L-CDM")
+ax.plot(time_values, mean_lcdm, marker='o', linestyle="-", markersize=10, linewidth=6, label=f"Mean Joint L-CDM")
 ax.set_title(r"$D_{\text{RE}}$ \text{Comparison}", fontsize=fs, pad=16)
 ax.set_xlabel(r"$t$", fontsize=fs)
 ax.set_ylabel(r"$D_{\text{RE}}$", fontsize=fs)
@@ -543,5 +814,97 @@ lege = fig.legend(handles, labels, loc='upper center', ncol=4, fontsize=fs,
 lege.get_frame().set_linewidth(2)
 
 # Save the figure as a PDF ensuring nothing overlaps
-# plt.savefig('C:\\UWMadisonResearch\\SBM_FNO_Closure\\Plots\\MSE_RE_Comparison_G.png', dpi=300)
-plt.show()
+plt.savefig(
+    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "MSE_RE_Comparison.png"),
+    dpi=300,
+    bbox_inches='tight'
+)
+
+
+
+
+
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+onedrive_path = 'C:\\Users\\dongx\\OneDriveUWM'
+# Time values
+time_values = np.array([30, 35, 40, 45, 50])
+
+# Ensemble RMSE and MSE
+sim_vort_rmse_pcdm_ens = np.array([0, 1.9592e-02, 3.9259e-02, 5.3989e-02, 7.4100e-02])
+sim_vort_mse_pcdm_ens = np.array([0, 3.9879e-04, 1.5659e-03, 2.9318e-03, 5.5015e-03])
+sim_vort_rmse_joint_ens = np.array([0, 2.0646e-02, 4.2939e-02, 6.6262e-02, 8.3996e-02])
+sim_vort_mse_joint_ens = np.array([0 ,5.7757e-04, 1.8671e-03 ,4.8354e-03, 7.8113e-03])
+
+# Updated standard deviations
+std_mse_pcdm = np.array([0.0000, 0.00013, 0.00022, 0.00032, 0.00051])
+std_rmse_pcdm = np.array([0.0000, 0.0016, 0.0029, 0.0038, 0.0047])
+std_mse_joint = np.array([0.0000, 0.00008, 0.00014, 0.00023, 0.00035])
+std_rmse_joint = np.array([0.0000, 0.0008, 0.0016, 0.0020, 0.0027])
+
+# Create figure
+fig, axs = plt.subplots(1, 2, figsize=(54, 18))
+plt.subplots_adjust(left=0.111, right=0.889, top=0.748, bottom=0.15, wspace=0.333)
+fs = 60
+
+# MSE Plot
+ax0 = axs[0]
+ax0.plot(time_values, sim_vort_mse_pcdm_ens, linestyle="--", marker='o', linewidth=6, markersize=10, label="Ensemble P-CDM")
+ax0.fill_between(time_values,
+                 sim_vort_mse_pcdm_ens - 2 * std_mse_pcdm,
+                 sim_vort_mse_pcdm_ens + 2 * std_mse_pcdm,
+                 color='blue', alpha=0.2)
+
+ax0.plot(time_values, sim_vort_mse_joint_ens, linestyle="-", marker='o', linewidth=6, markersize=10, label="Ensemble Joint L-CDM")
+ax0.fill_between(time_values,
+                 sim_vort_mse_joint_ens - 2 * std_mse_joint,
+                 sim_vort_mse_joint_ens + 2 * std_mse_joint,
+                 color='orange', alpha=0.2)
+
+ax0.set_title(r"$D_{\text{MSE}}$ \text{Comparison}", fontsize=fs, pad=16)
+ax0.set_xlabel(r"$t$", fontsize=fs)
+ax0.set_ylabel(r"$D_{\text{MSE}}$", fontsize=fs)
+ax0.set_xticks([30, 35, 40, 45, 50])
+ax0.set_yticks([0.000, 0.005, 0.010])
+ax0.tick_params(axis='both', which='major', labelsize=fs, width=2, length=14)
+for spine in ax0.spines.values():
+    spine.set_linewidth(2)
+
+# RMSE Plot
+ax1 = axs[1]
+ax1.plot(time_values, sim_vort_rmse_pcdm_ens, linestyle="--", marker='o', linewidth=6, markersize=10, label="Ensemble P-CDM")
+ax1.fill_between(time_values,
+                 sim_vort_rmse_pcdm_ens - 2 * std_rmse_pcdm,
+                 sim_vort_rmse_pcdm_ens + 2 * std_rmse_pcdm,
+                 color='blue', alpha=0.2)
+
+ax1.plot(time_values, sim_vort_rmse_joint_ens, linestyle="-", marker='o', linewidth=6, markersize=10, label="Ensemble Joint L-CDM")
+ax1.fill_between(time_values,
+                 sim_vort_rmse_joint_ens - 2 * std_rmse_joint,
+                 sim_vort_rmse_joint_ens + 2 * std_rmse_joint,
+                 color='orange', alpha=0.2)
+
+ax1.set_title(r"$D_{\text{RE}}$ \text{Comparison}", fontsize=fs, pad=16)
+ax1.set_xlabel(r"$t$", fontsize=fs)
+ax1.set_ylabel(r"$D_{\text{RE}}$", fontsize=fs)
+ax1.set_xticks([30, 35, 40, 45, 50])
+ax1.set_yticks([0.00, 0.05, 0.10])
+ax1.tick_params(axis='both', which='major', labelsize=fs, width=2, length=14)
+for spine in ax1.spines.values():
+    spine.set_linewidth(2)
+
+# Shared Legend
+handles, labels = ax0.get_legend_handles_labels()
+lege = fig.legend(handles, labels, loc='upper center', ncol=4, fontsize=fs,
+                  bbox_to_anchor=(0.5, 1), fancybox=False, edgecolor="black")
+lege.get_frame().set_linewidth(2)
+
+# Save
+plt.savefig(
+    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "MSE_RE_Comparison_Band.png"),
+    dpi=300,
+    bbox_inches='tight'
+)
+
+

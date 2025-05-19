@@ -36,7 +36,7 @@ warnings.filterwarnings("ignore")
 # ------------------------------------------------------------------
 
 ### Get OneDrive Path from Environment Variables
-onedrive_path = '/mnt/c/Users/dongx/OneDriveUWM'
+onedrive_path = 'C:\\Users\\dongx\\OneDriveUWM'
 
 ### Check CUDA Availability
 def get_device():
@@ -65,96 +65,6 @@ test_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data"
 with h5py.File(test_name, 'r') as file:
     test_nonlinear = torch.tensor(file['test_nonlinear_64'][:1000], device=device)
     test_vorticity = torch.tensor(file['test_vorticity_64'][:1000], device=device)
-
-test_vorticity_flat = test_vorticity.view(test_vorticity.shape[0], -1).cpu().numpy()
-test_nonlinear_flat = test_nonlinear.view(test_nonlinear.shape[0], -1).cpu().numpy()
-
-repeated_vorticity_flat = np.repeat(test_vorticity_flat, 1, axis=0)
-joint_physical_sample = np.concatenate((physical_test_sample.view(physical_test_sample.shape[0], -1).cpu().numpy(), repeated_vorticity_flat), axis=1)
-
-joint_joint_sample = np.concatenate((joint_test_sample.view(joint_test_sample.shape[0], -1).cpu().numpy(), repeated_vorticity_flat), axis=1)
-
-joint_separate_sample = np.concatenate((separate_test_sample.view(separate_test_sample.shape[0], -1).cpu().numpy(), repeated_vorticity_flat), axis=1)
-
-joint_gt = np.concatenate((test_nonlinear_flat, test_vorticity_flat), axis=1)
-
-# joint_physical_sample =physical_test_sample.view(physical_test_sample.shape[0], -1).cpu().numpy()
-#
-# joint_joint_sample = joint_test_sample.view(joint_test_sample.shape[0], -1).cpu().numpy()
-#
-# joint_separate_sample = separate_test_sample.view(separate_test_sample.shape[0], -1).cpu().numpy()
-#
-# joint_gt = test_nonlinear_flat
-
-# Combine the joint pairs and create labels.
-joint_all = np.concatenate([joint_gt, joint_physical_sample, joint_joint_sample, joint_separate_sample], axis=0)
-labels_joint = np.array([0] * joint_gt.shape[0] + [1] * joint_physical_sample.shape[0] +
-                        [2] * joint_joint_sample.shape[0] + [3] * joint_separate_sample.shape[0])
-
-from sklearn.manifold import TSNE
-from sklearn.preprocessing import StandardScaler
-
-scaled_joint_all = StandardScaler().fit_transform(joint_all)
-tsne = TSNE(n_components=2, perplexity=40, random_state=22, learning_rate='auto', init='pca')
-
-joint_tsne  = tsne.fit_transform(scaled_joint_all)
-
-plt.figure(figsize=(12, 8))
-plt.scatter(joint_tsne[labels_joint == 0, 0], joint_tsne[labels_joint == 0, 1],
-            label='Ground Truth', alpha=1, s=10)
-plt.scatter(joint_tsne[labels_joint == 1, 0], joint_tsne[labels_joint == 1, 1],
-            label='Generated Physical', alpha=0.2, s=10)
-plt.scatter(joint_tsne[labels_joint == 2, 0], joint_tsne[labels_joint == 2, 1],
-            label='Generated Joint', alpha=0.2, s=10)
-plt.scatter(joint_tsne[labels_joint == 3, 0], joint_tsne[labels_joint == 3, 1],
-            label='Generated Separate', alpha=0.2,s=10)
-plt.title('t-SNE Visualization of Joint (w, H) Pairs')
-plt.xlabel('t-SNE Dim 1')
-plt.ylabel('t-SNE Dim 2')
-plt.legend()
-plt.show()
-
-plt.plot([1], [1], marker='o')
-plt.show()
-
-
-from sklearn.decomposition import PCA
-pca = PCA(n_components=2)
-pca_result = pca.fit_transform(scaled_joint_all)
-
-plt.figure(figsize=(12, 8))
-plt.scatter(pca_result[labels_joint == 0, 0], pca_result[labels_joint == 0, 1],
-            label='Ground Truth', alpha=1, s=10)
-plt.scatter(pca_result[labels_joint == 1, 0], pca_result[labels_joint == 1, 1],
-            label='Generated Physical', alpha=0.2, s=10)
-plt.scatter(pca_result[labels_joint == 2, 0], pca_result[labels_joint == 2, 1],
-            label='Generated Joint', alpha=0.2, s=10)
-plt.scatter(pca_result[labels_joint == 3, 0], pca_result[labels_joint == 3, 1],
-            label='Generated Separate', alpha=0.2,s=10)
-plt.title('PCA Visualization of Joint (w, H) Pairs')
-plt.xlabel('PCA Dim 1')
-plt.ylabel('PCA Dim 2')
-plt.legend()
-plt.show()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 sigma = 30
 marginal_prob_std_fn = partial(marginal_prob_std, sigma=sigma, device_=device)
@@ -197,7 +107,7 @@ Separate_AEW_model.eval()
 Separate_diffusion_model.eval()
 ### Set seed for reproducibility
 set_seed(42)
-index = 15
+index = 450
 
 # ------------------------------------------------------------------
 # P-CDM Sampling
@@ -245,11 +155,14 @@ physical_sampler = partial(sampler,
 torch.cuda.synchronize()
 start = time.time()
 with torch.no_grad():
-    #physical_test_sample = physical_sampler(test_vorticity[index:index+1].repeat(sample_batch_size, 1, 1), P_CDM)
-    physical_test_sample = physical_sampler(test_vorticity.repeat(1, 1, 1), P_CDM)
+    # physical_test_sample = physical_sampler(test_vorticity[index:index+1].repeat(sample_batch_size, 1, 1), P_CDM)
+    physical_test_sample = physical_sampler(test_vorticity, P_CDM)
 torch.cuda.synchronize()
 end = time.time()
 print('Time elapsed: {}'.format(end - start))
+
+fro_err_general = fro_err(test_nonlinear, physical_test_sample)
+mse_err_general = mse_err(test_nonlinear, physical_test_sample)
 
 rel_err_col = torch.zeros(sample_batch_size, device=device)
 mse_err_col = torch.zeros(sample_batch_size, device=device)
@@ -257,11 +170,157 @@ for i in range(sample_batch_size):
     rel_err_col[i] = fro_err(test_nonlinear[index:index+1], physical_test_sample[i:i+1])
     mse_err_col[i] = mse_err(test_nonlinear[index:index+1], physical_test_sample[i:i+1])
 
-test_sample_mean = physical_test_sample.mean(dim=0, keepdim=True)
-fro_sample = fro_err(test_nonlinear[index:index+1], test_sample_mean[0:1])
-mse_sample = mse_err(test_nonlinear[index:index+1], test_sample_mean[0:1])
-fro_sample_nonoise = fro_err(test_nonlinear[index:index+1]-5e-5 * test_forcing[index:index+1], test_sample_mean[0:1])
-mse_sample = mse_err(test_nonlinear[index:index+1], physical_test_sample[index:index+1])
+physical_test_sample_mean = physical_test_sample.mean(dim=0, keepdim=True)
+fro_sample = fro_err(test_nonlinear[index:index+1], physical_test_sample_mean[0:1])
+mse_sample = mse_err(test_nonlinear[index:index+1], physical_test_sample_mean[0:1])
+
+
+
+
+
+
+### Plot and save
+set_seed(13)
+
+data1 = test_nonlinear[:sample_batch_size, :, :].cpu()
+data2 = physical_test_sample.cpu()
+data3 = np.abs(data1 - data2)
+
+# Initialize the plot with 4 rows and 4 columns
+fig, axs = plt.subplots(3, 4, figsize=(20, 15), constrained_layout=True)
+fs = 28
+plt.rcParams.update({'font.size': fs})
+
+# Define tick positions and labels
+def create_ticks_labels(size, step=20):
+    ticks = np.arange(0, size, step * size / 64)
+    tick_labels = [str(int(tick)) for tick in ticks]
+    return ticks, tick_labels
+
+ticks_1, tick_labels_1 = create_ticks_labels(data1.shape[1])
+ticks_2, tick_labels_2 = create_ticks_labels(data2.shape[1])
+ticks_3, tick_labels_3 = create_ticks_labels(data3.shape[1])
+
+# Randomly sample indices equal to the number of columns (4) for clarity
+indices = [torch.randint(0, data1.shape[0], (1,)).item() for _ in range(4)]
+
+# Define color scale parameters
+max_val = 0.7
+min_val = -0.8
+err_max = 0.20
+err_min = 0
+cbar_ticks = np.linspace(min_val, max_val, 6)
+cbar_ticks_err = np.linspace(err_min, err_max, 6)
+cbar_ticks_contour = np.linspace(err_min, err_max, 6)
+
+# Plot heatmaps and contour plots
+for i, idx in enumerate(indices):
+    j = i % 4  # Column index
+
+    # --- Row 1: Truth Heatmap ---
+    truth = data1[idx, ...].cpu().numpy()
+    sns.heatmap(
+        truth,
+        ax=axs[0, j],
+        cmap='rocket',
+        cbar=(j == 3),  # Show colorbar only on the last column
+        vmax=max_val,
+        vmin=min_val,
+        cbar_kws={'format': '%.1f', 'ticks': cbar_ticks}
+    )
+    axs[0, j].set_title(r"\text{Truth }" + str(j + 1))
+    axs[0, j].set_xticks(ticks_1)
+    axs[0, j].set_yticks(ticks_1)
+    axs[0, j].set_xticklabels(tick_labels_1, rotation=0)
+    axs[0, j].set_yticklabels(tick_labels_1, rotation=0)
+    axs[0, j].invert_yaxis()
+
+    # --- Row 2: Generated Heatmap ---
+    generated = data2[idx, ...].cpu().numpy()
+    sns.heatmap(
+        generated,
+        ax=axs[1, j],
+        cmap='rocket',
+        cbar=(j == 3),
+        vmax=max_val,
+        vmin=min_val,
+        cbar_kws={'format': '%.1f', 'ticks': cbar_ticks}
+    )
+
+    axs[1, j].set_title(r"\text{Generated }" + str(j + 1))
+    axs[1, j].set_xticks(ticks_2)
+    axs[1, j].set_yticks(ticks_2)
+    axs[1, j].set_xticklabels(tick_labels_2, rotation=0)
+    axs[1, j].set_yticklabels(tick_labels_2, rotation=0)
+    axs[1, j].invert_yaxis()
+
+    # --- Row 3: Error Heatmap ---
+    error = data3[idx, ...].cpu().numpy()
+    ax_contour = axs[2, j]
+    # Define the grid coordinates
+    S = error.shape[0]
+    x = np.arange(S)
+    y = np.arange(S)
+    X, Y = np.meshgrid(x, y)
+
+    # Create filled contour plot using matplotlib
+    contour = ax_contour.contourf(
+        X, Y, error,
+        levels=cbar_ticks_contour,  # Six levels to match cbar_ticks_err
+        cmap='rocket',
+        vmin=err_min,
+        vmax=err_max
+    )
+
+    # Add colorbar only on the last column
+    if j == 3:
+        cbar_contour = fig.colorbar(
+            contour,
+            ax=ax_contour,
+            format='%.2f'
+        )
+
+    ax_contour.set_title(r"\text{Error Contour }" + str(j + 1))
+    ax_contour.set_xticks(ticks_3)
+    ax_contour.set_yticks(ticks_3)
+    ax_contour.set_xticklabels(tick_labels_3, rotation=0)
+    ax_contour.set_yticklabels(tick_labels_3, rotation=0)
+
+# Adjust tick parameters for all axes
+for ax in axs.flat:
+    ax.tick_params(axis='both', which='major', labelsize=fs)
+
+
+# Adjust layout and save the plot
+plt.subplots_adjust(right=0.85, hspace=0.3, wspace=0.5)
+# plt.show()
+plt.savefig(
+    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "PhysicalLDM.png"),
+    dpi=300,
+    bbox_inches='tight'
+)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # ------------------------------------------------------------------
@@ -284,18 +343,35 @@ joint_sampler = partial(sampler,
                      time_noises=time_noises,
                      device=device)
 
+with torch.no_grad():
+    latent_vorticity_joint = Joint_AEW_model.encode(test_vorticity)
+    latent_nonlinear_joint = Joint_AEG_model.encode(test_nonlinear)
+    reconstructed_vorticity_joint = Joint_AEW_model.decode(Joint_AEW_model.encode(test_vorticity))
+    reconstructed_nonlinear_joint = Joint_AEG_model.decode(Joint_AEG_model.encode(test_nonlinear))
+
+recon_vor_rel_err = fro_err(test_vorticity, reconstructed_vorticity_joint)
+recon_nl_rel_err = fro_err(test_nonlinear, reconstructed_nonlinear_joint)
+recon_vor_mse_err = mse_err(test_vorticity, reconstructed_vorticity_joint)
+recon_nl_mse_err = mse_err(test_nonlinear, reconstructed_nonlinear_joint)
+
 
 torch.cuda.synchronize()
 start_time = time.time()
 
 with torch.no_grad():
-    # test_vorticity_latent = Joint_AEW_model.encode(test_vorticity[index:index+1].repeat(sample_batch_size, 1, 1))
-    test_vorticity_latent = Joint_AEW_model.encode(test_vorticity.repeat(1, 1, 1))
-    sample_test = joint_sampler(test_vorticity_latent, Joint_diffusion_model)
-    joint_test_sample = Joint_AEG_model.decode(sample_test)
+    # test_vorticity_latent_joint = Joint_AEW_model.encode(test_vorticity[index:index+1].repeat(sample_batch_size, 1, 1))
+    test_vorticity_latent_joint = Joint_AEW_model.encode(test_vorticity.repeat(1, 1, 1))
+    sample_test_joint = joint_sampler(test_vorticity_latent_joint, Joint_diffusion_model)
+    joint_test_sample = Joint_AEG_model.decode(sample_test_joint)
 torch.cuda.synchronize()
 end_time = time.time()
 print(f"Sampling completed in {end_time - start_time:.4f} seconds.")
+
+
+rel_err_general = fro_err(test_nonlinear, joint_test_sample)
+mse_err_general = mse_err(test_nonlinear, joint_test_sample)
+rel_err_latent = fro_err(latent_nonlinear, sample_test)
+mse_err_latent = mse_err(latent_nonlinear, sample_test)
 
 rel_err_col = torch.zeros(sample_batch_size, device=device)
 mse_err_col = torch.zeros(sample_batch_size, device=device)
@@ -303,13 +379,179 @@ for i in range(sample_batch_size):
     rel_err_col[i] = fro_err(test_nonlinear[index:index+1], joint_test_sample[i:i+1])
     mse_err_col[i] = mse_err(test_nonlinear[index:index+1], joint_test_sample[i:i+1])
 
-sample_pixel_mean = joint_test_sample.mean(dim=0, keepdim=True)
-mean_fro_err = fro_err(test_nonlinear[index:index+1], sample_pixel_mean)
-mean_mse_err = mse_err(test_nonlinear[index:index+1], sample_pixel_mean)
+joint_test_sample_mean = joint_test_sample.mean(dim=0, keepdim=True)
+mean_fro_err = fro_err(test_nonlinear[index:index+1], joint_test_sample_mean)
+mean_mse_err = mse_err(test_nonlinear[index:index+1], joint_test_sample_mean)
 
-test_nonlinear_nonoise = test_nonlinear - 5e-5* test_forcing
-fro_err_noise = fro_err(test_nonlinear_nonoise, test_nonlinear)
 
+
+set_seed(13)
+
+data1 = latent_nonlinear[:sample_batch_size, :, :].cpu()
+data2 = sample_test.cpu()
+data3 = test_nonlinear[:sample_batch_size, :, :].cpu()
+data4 = joint_test_sample.cpu()
+data5 = np.abs(data3 - data4)
+
+# Initialize the plot with 4 rows and 4 columns
+fig, axs = plt.subplots(5, 4, figsize=(20, 25), constrained_layout=True)
+fs = 28
+plt.rcParams.update({'font.size': fs})
+
+# Define tick positions and labels
+def create_ticks_labels(size, step=20):
+    ticks = np.arange(0, size, step * size / 64)
+    tick_labels = [str(int(tick)) for tick in ticks]
+    return ticks, tick_labels
+
+ticks_1, tick_labels_1 = create_ticks_labels(data1.shape[1])
+ticks_2, tick_labels_2 = create_ticks_labels(data2.shape[1])
+ticks_3, tick_labels_3 = create_ticks_labels(data3.shape[1])
+ticks_4, tick_labels_4 = create_ticks_labels(data4.shape[1])
+ticks_5, tick_labels_5 = create_ticks_labels(data5.shape[1])
+
+# Randomly sample indices equal to the number of columns (4) for clarity
+indices = [torch.randint(0, 100, (1,)).item() for _ in range(4)]
+
+# Define color scale parameters
+latent_max = 0.2
+latent_min = -0.3
+max_val = 0.7
+min_val = -0.8
+err_max = 0.20
+err_min = 0
+cbar_ticks_latent = np.linspace(latent_min, latent_max, 6)
+cbar_ticks = np.linspace(min_val, max_val, 6)
+cbar_ticks_contour = np.linspace(err_min, err_max, 6)
+
+# Plot heatmaps and contour plots
+for i, idx in enumerate(indices):
+    j = i % 4  # Column index
+
+    # --- Row 1: Truth Heatmap ---
+    latent_truth = data1[idx, ...].cpu().numpy()
+    sns.heatmap(
+        latent_truth,
+        ax=axs[0, j],
+        cmap='rocket',
+        cbar=(j == 3),  # Show colorbar only on the last column
+        vmax=latent_max,
+        vmin=latent_min,
+        cbar_kws={'format': '%.1f', 'ticks': cbar_ticks_latent},
+        square=True
+    )
+    axs[0, j].set_title(r"\text{Latent Truth }" + str(j + 1))
+    axs[0, j].set_xticks(ticks_1)
+    axs[0, j].set_yticks(ticks_1)
+    axs[0, j].set_xticklabels(tick_labels_1, rotation=0)
+    axs[0, j].set_yticklabels(tick_labels_1, rotation=0)
+    axs[0, j].invert_yaxis()
+
+    # --- Row 2: Generated Heatmap ---
+    latent_generated = data2[idx, ...].cpu().numpy()
+    sns.heatmap(
+        latent_generated,
+        ax=axs[1, j],
+        cmap='rocket',
+        cbar=(j == 3),
+        vmax=latent_max,
+        vmin=latent_min,
+        cbar_kws={'format': '%.1f', 'ticks': cbar_ticks_latent},
+        square=True
+    )
+
+    axs[1, j].set_title(r"\text{Latent Generated }" + str(j + 1))
+    axs[1, j].set_xticks(ticks_2)
+    axs[1, j].set_yticks(ticks_2)
+    axs[1, j].set_xticklabels(tick_labels_2, rotation=0)
+    axs[1, j].set_yticklabels(tick_labels_2, rotation=0)
+    axs[1, j].invert_yaxis()
+
+    # --- Row 3: Truth Heatmap ---
+    truth = data3[idx, ...].cpu().numpy()
+    sns.heatmap(
+        truth,
+        ax=axs[2, j],
+        cmap='rocket',
+        cbar=(j == 3),
+        vmax=max_val,
+        vmin=min_val,
+        cbar_kws={'format': '%.1f', 'ticks': cbar_ticks},
+        square=True
+    )
+
+    axs[2, j].set_title(r"\text{Truth }" + str(j + 1))
+    axs[2, j].set_xticks(ticks_3)
+    axs[2, j].set_yticks(ticks_3)
+    axs[2, j].set_xticklabels(tick_labels_3, rotation=0)
+    axs[2, j].set_yticklabels(tick_labels_3, rotation=0)
+    axs[2, j].invert_yaxis()
+
+    # --- Row 4: Generated Heatmap ---
+    generated = data4[idx, ...].cpu().numpy()
+    sns.heatmap(
+        generated,
+        ax=axs[3, j],
+        cmap='rocket',
+        cbar=(j == 3),
+        vmax=max_val,
+        vmin=min_val,
+        cbar_kws={'format': '%.1f', 'ticks': cbar_ticks},
+        square=True
+    )
+
+    axs[3, j].set_title(r"\text{Generated }" + str(j + 1))
+    axs[3, j].set_xticks(ticks_4)
+    axs[3, j].set_yticks(ticks_4)
+    axs[3, j].set_xticklabels(tick_labels_4, rotation=0)
+    axs[3, j].set_yticklabels(tick_labels_4, rotation=0)
+    axs[3, j].invert_yaxis()
+
+    # --- Row 3: Error Heatmap ---
+    error = data5[idx, ...].cpu().numpy()
+    ax_contour = axs[4, j]
+    # Define the grid coordinates
+    S = error.shape[0]
+    x = np.arange(S)
+    y = np.arange(S)
+    X, Y = np.meshgrid(x, y)
+
+    # Create filled contour plot using matplotlib
+    contour = ax_contour.contourf(
+        X, Y, error,
+        levels=cbar_ticks_contour,  # Six levels to match cbar_ticks_err
+        cmap='rocket',
+        vmin=err_min,
+        vmax=err_max,
+        square=True
+    )
+
+    # Add colorbar only on the last column
+    if j == 3:
+        cbar_contour = fig.colorbar(
+            contour,
+            ax=ax_contour,
+            format='%.2f'
+        )
+
+    ax_contour.set_title(r"\text{Error Contour }" + str(j + 1))
+    ax_contour.set_xticks(ticks_4)
+    ax_contour.set_yticks(ticks_4)
+    ax_contour.set_xticklabels(tick_labels_4, rotation=0)
+    ax_contour.set_yticklabels(tick_labels_4, rotation=0)
+
+# Adjust tick parameters for all axes
+for ax in axs.flat:
+    ax.tick_params(axis='both', which='major', labelsize=fs)
+
+
+# Adjust layout and save the plot
+plt.subplots_adjust(right=0.85, hspace=0.3, wspace=0.5)
+plt.savefig(
+    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "ModelWithJoint.png"),
+    dpi=300,
+    bbox_inches='tight'
+)
 
 
 
@@ -333,18 +575,33 @@ joint_sampler = partial(sampler,
                      time_noises=time_noises,
                      device=device)
 
+with torch.no_grad():
+    latent_vorticity_separate = Separate_AEW_model.encode(test_vorticity)
+    latent_nonlinear_separate = Separate_AEG_model.encode(test_nonlinear)
+    reconstructed_vorticity_separate = Separate_AEW_model.decode(Separate_AEW_model.encode(test_vorticity))
+    reconstructed_nonlinear_separate = Separate_AEG_model.decode(Separate_AEG_model.encode(test_nonlinear))
+
+recon_vor_rel_err = fro_err(test_vorticity, reconstructed_vorticity_separate)
+recon_nl_rel_err = fro_err(test_nonlinear, reconstructed_nonlinear_separate)
+recon_vor_mse_err = mse_err(test_vorticity, reconstructed_vorticity_separate)
+recon_nl_mse_err = mse_err(test_nonlinear, reconstructed_nonlinear_separate)
 
 torch.cuda.synchronize()
 start_time = time.time()
 
 with torch.no_grad():
-    # test_vorticity_latent = Separate_AEW_model.encode(test_vorticity[index:index+1].repeat(sample_batch_size, 1, 1))
-    test_vorticity_latent = Separate_AEW_model.encode(test_vorticity.repeat(1, 1, 1))
-    sample_test = joint_sampler(test_vorticity_latent, Separate_diffusion_model)
-    separate_test_sample = Separate_AEG_model.decode(sample_test)
+    # test_vorticity_latent_separate = Separate_AEW_model.encode(test_vorticity[index:index+1].repeat(sample_batch_size, 1, 1))
+    test_vorticity_latent_separate = Separate_AEW_model.encode(test_vorticity.repeat(1, 1, 1))
+    sample_test_separate = joint_sampler(test_vorticity_latent_separate, Separate_diffusion_model)
+    separate_test_sample = Separate_AEG_model.decode(sample_test_separate)
 torch.cuda.synchronize()
 end_time = time.time()
 print(f"Sampling completed in {end_time - start_time:.4f} seconds.")
+
+rel_err_general = fro_err(test_nonlinear, separate_test_sample)
+mse_err_general = mse_err(test_nonlinear, separate_test_sample)
+rel_err_latent = fro_err(latent_nonlinear, sample_test)
+mse_err_latent = mse_err(latent_nonlinear, sample_test)
 
 rel_err_col = torch.zeros(sample_batch_size, device=device)
 mse_err_col = torch.zeros(sample_batch_size, device=device)
@@ -352,395 +609,661 @@ for i in range(sample_batch_size):
     rel_err_col[i] = fro_err(test_nonlinear[index:index+1], separate_test_sample[i:i+1])
     mse_err_col[i] = mse_err(test_nonlinear[index:index+1], separate_test_sample[i:i+1])
 
-sample_pixel_mean = separate_test_sample.mean(dim=0, keepdim=True)
-mean_fro_err = fro_err(test_nonlinear[index:index+1], sample_pixel_mean)
-mean_mse_err = mse_err(test_nonlinear[index:index+1], sample_pixel_mean)
-
-test_nonlinear_nonoise = test_nonlinear - 5e-5* test_forcing
-fro_err_noise = fro_err(test_nonlinear_nonoise, test_nonlinear)
+separate_test_sample_mean = separate_test_sample.mean(dim=0, keepdim=True)
+mean_fro_err = fro_err(test_nonlinear[index:index+1], separate_test_sample_mean)
+mean_mse_err = mse_err(test_nonlinear[index:index+1], separate_test_sample_mean)
 
 
+# save samples
+physical_test_sample = physical_test_sample.cpu()
+joint_test_sample = joint_test_sample.cpu()
+seperate_test_sample = sample_test_separate.cpu()
+
+file_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data", "sample_test_1000.h5")
+with h5py.File(file_name, 'w') as f:
+    f.create_dataset('physical_test_sample', data=physical_test_sample)
+    f.create_dataset('joint_test_sample', data=joint_test_sample)
+    f.create_dataset('separate_test_sample', data=seperate_test_sample)
 
 
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.fftpack import fft2, fftshift
-import matplotlib.colors as colors
 
+set_seed(13)
 
-def calculate_fluctuation_spectrum(samples, domain_size=1.0):
-    """
-    Calculate the energy spectrum of fluctuations for a set of 2D samples
-    with non-normalized wavenumbers.
+data1 = latent_nonlinear[:sample_batch_size, :, :].cpu()
+data2 = sample_test.cpu()
+data3 = test_nonlinear[:sample_batch_size, :, :].cpu()
+data4 = separate_test_sample.cpu()
+data5 = np.abs(data3 - data4)
 
-    Parameters:
-    ----------
-    samples : ndarray
-        Samples array of shape (n_samples, nx, ny)
-    domain_size : float
-        Physical size of the domain (default=1.0)
+# Initialize the plot with 4 rows and 4 columns
+fig, axs = plt.subplots(5, 4, figsize=(20, 25), constrained_layout=True)
+fs = 28
+plt.rcParams.update({'font.size': fs})
 
-    Returns:
-    -------
-    wavenumbers : ndarray
-        1D array of wavenumbers (in cycles per domain, not normalized)
-    spectrum : ndarray
-        1D array of fluctuation energy values corresponding to wavenumbers
-    """
-    n_samples, nx, ny = samples.shape
+# Define tick positions and labels
+def create_ticks_labels(size, step=20):
+    ticks = np.arange(0, size, step * size / 64)
+    tick_labels = [str(int(tick)) for tick in ticks]
+    return ticks, tick_labels
 
-    # Calculate mean across all samples
-    mean_field = np.mean(samples, axis=0)
+ticks_1, tick_labels_1 = create_ticks_labels(data1.shape[1])
+ticks_2, tick_labels_2 = create_ticks_labels(data2.shape[1])
+ticks_3, tick_labels_3 = create_ticks_labels(data3.shape[1])
+ticks_4, tick_labels_4 = create_ticks_labels(data4.shape[1])
+ticks_5, tick_labels_5 = create_ticks_labels(data5.shape[1])
 
-    # Compute 2D FFT of fluctuations for each sample and average the power spectra
-    k_spectrum = np.zeros((nx, ny))
+# Randomly sample indices equal to the number of columns (4) for clarity
+indices = [torch.randint(0, 100, (1,)).item() for _ in range(4)]
 
-    for i in range(n_samples):
-        # Compute fluctuation (difference from mean)
-        fluctuation = samples[i] - mean_field
+# Define color scale parameters
+latent_max = 2.0
+latent_min = -2.0
+max_val = 0.7
+min_val = -0.8
+err_max = 0.20
+err_min = 0
+cbar_ticks_latent = np.linspace(latent_min, latent_max, 6)
+cbar_ticks = np.linspace(min_val, max_val, 6)
+cbar_ticks_contour = np.linspace(err_min, err_max, 6)
 
-        # 2D FFT of the fluctuation
-        fft_fluctuation = fftshift(fft2(fluctuation))
+# Plot heatmaps and contour plots
+for i, idx in enumerate(indices):
+    j = i % 4  # Column index
 
-        # Power spectrum (squared magnitude of FFT)
-        power = np.abs(fft_fluctuation) ** 2
+    # --- Row 1: Truth Heatmap ---
+    latent_truth = data1[idx, ...].cpu().numpy()
+    sns.heatmap(
+        latent_truth,
+        ax=axs[0, j],
+        cmap='rocket',
+        cbar=(j == 3),  # Show colorbar only on the last column
+        vmax=latent_max,
+        vmin=latent_min,
+        cbar_kws={'format': '%.1f', 'ticks': cbar_ticks_latent},
+        square=True
+    )
+    axs[0, j].set_title(r"\text{Latent Truth }" + str(j + 1))
+    axs[0, j].set_xticks(ticks_1)
+    axs[0, j].set_yticks(ticks_1)
+    axs[0, j].set_xticklabels(tick_labels_1, rotation=0)
+    axs[0, j].set_yticklabels(tick_labels_1, rotation=0)
+    axs[0, j].invert_yaxis()
 
-        # Accumulate
-        k_spectrum += power
+    # --- Row 2: Generated Heatmap ---
+    latent_generated = data2[idx, ...].cpu().numpy()
+    sns.heatmap(
+        latent_generated,
+        ax=axs[1, j],
+        cmap='rocket',
+        cbar=(j == 3),
+        vmax=latent_max,
+        vmin=latent_min,
+        cbar_kws={'format': '%.1f', 'ticks': cbar_ticks_latent},
+        square=True
+    )
 
-    # Average over samples
-    k_spectrum /= n_samples
+    axs[1, j].set_title(r"\text{Latent Generated }" + str(j + 1))
+    axs[1, j].set_xticks(ticks_2)
+    axs[1, j].set_yticks(ticks_2)
+    axs[1, j].set_xticklabels(tick_labels_2, rotation=0)
+    axs[1, j].set_yticklabels(tick_labels_2, rotation=0)
+    axs[1, j].invert_yaxis()
 
-    # Create wavenumber grid in absolute units (cycles per domain)
-    # Instead of using d=1.0, we'll calculate frequencies directly
-    kx = np.fft.fftfreq(nx)  # Units: cycles per nx points
-    ky = np.fft.fftfreq(ny)  # Units: cycles per ny points
+    # --- Row 3: Truth Heatmap ---
+    truth = data3[idx, ...].cpu().numpy()
+    sns.heatmap(
+        truth,
+        ax=axs[2, j],
+        cmap='rocket',
+        cbar=(j == 3),
+        vmax=max_val,
+        vmin=min_val,
+        cbar_kws={'format': '%.1f', 'ticks': cbar_ticks},
+        square=True
+    )
 
-    # Scale to get cycles per domain
-    kx = fftshift(kx * nx)  # Now in cycles per domain
-    ky = fftshift(ky * ny)  # Now in cycles per domain
+    axs[2, j].set_title(r"\text{Truth }" + str(j + 1))
+    axs[2, j].set_xticks(ticks_3)
+    axs[2, j].set_yticks(ticks_3)
+    axs[2, j].set_xticklabels(tick_labels_3, rotation=0)
+    axs[2, j].set_yticklabels(tick_labels_3, rotation=0)
+    axs[2, j].invert_yaxis()
 
-    kx_grid, ky_grid = np.meshgrid(kx, ky)
+    # --- Row 4: Generated Heatmap ---
+    generated = data4[idx, ...].cpu().numpy()
+    sns.heatmap(
+        generated,
+        ax=axs[3, j],
+        cmap='rocket',
+        cbar=(j == 3),
+        vmax=max_val,
+        vmin=min_val,
+        cbar_kws={'format': '%.1f', 'ticks': cbar_ticks},
+        square=True
+    )
 
-    # Calculate magnitude of wavenumber vector at each point
-    k_grid = np.sqrt(kx_grid ** 2 + ky_grid ** 2)
+    axs[3, j].set_title(r"\text{Generated }" + str(j + 1))
+    axs[3, j].set_xticks(ticks_4)
+    axs[3, j].set_yticks(ticks_4)
+    axs[3, j].set_xticklabels(tick_labels_4, rotation=0)
+    axs[3, j].set_yticklabels(tick_labels_4, rotation=0)
+    axs[3, j].invert_yaxis()
 
-    # Create bins of wavenumbers - now in cycles per domain
-    # Use integer binning since we're working with discrete cycles
-    k_max = int(np.ceil(np.max(k_grid)))
-    k_bins = np.arange(0, k_max + 1, 1)
+    # --- Row 3: Error Heatmap ---
+    error = data5[idx, ...].cpu().numpy()
+    ax_contour = axs[4, j]
+    # Define the grid coordinates
+    S = error.shape[0]
+    x = np.arange(S)
+    y = np.arange(S)
+    X, Y = np.meshgrid(x, y)
 
-    # Initialize spectrum
-    spectrum = np.zeros(len(k_bins) - 1)
+    # Create filled contour plot using matplotlib
+    contour = ax_contour.contourf(
+        X, Y, error,
+        levels=cbar_ticks_contour,  # Six levels to match cbar_ticks_err
+        cmap='rocket',
+        vmin=err_min,
+        vmax=err_max,
+        square=True
+    )
 
-    # Bin the energy
-    for i in range(len(k_bins) - 1):
-        k_lower = k_bins[i]
-        k_upper = k_bins[i + 1]
-
-        # Find all points in this wavenumber range
-        mask = (k_grid >= k_lower) & (k_grid < k_upper)
-
-        if np.any(mask):
-            spectrum[i] = np.mean(k_spectrum[mask])
-
-    # Wavenumbers for plotting (center of bins)
-    wavenumbers = (k_bins[:-1] + k_bins[1:]) / 2
-
-    return wavenumbers, spectrum
-
-# Calculate the fluctuation spectrum for the samples
-k_phy, E_phy = calculate_fluctuation_spectrum(physical_test_sample.cpu().numpy())
-k_joint, E_joint = calculate_fluctuation_spectrum(joint_test_sample.cpu().numpy() )
-k_separate, E_separate = calculate_fluctuation_spectrum(separate_test_sample.cpu().numpy())
-
-# Plotting the results
-plt.figure(figsize=(10, 6))
-plt.loglog(k_phy, E_phy, label='P-CDM', color='blue')
-plt.loglog(k_joint, E_joint, label='Joint L-CDM', color='orange')
-plt.loglog(k_separate, E_separate, label='Separate L-CDM', color='green')
-plt.xlabel('Wavenumber (k)')
-plt.ylabel('Energy Spectrum (E(k))')
-plt.title('Energy Spectrum of Fluctuations')
-plt.legend()
-plt.tight_layout()
-plt.show()
-
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.manifold import TSNE
-from sklearn.preprocessing import StandardScaler
-import matplotlib.colors as colors
-
-
-def visualize_samples_tsne(samples_dict, n_components=2, perplexity=30, random_state=42, figsize=(15, 9), sample_size=None):
-    """
-    Visualize sample distributions using t-SNE dimensionality reduction.
-
-    Parameters:
-    ----------
-    samples_dict : dict
-        Dictionary of sample arrays {model_name: samples_array}
-        where each samples_array has shape (n_samples, nx, ny)
-    n_components : int
-        Number of components for t-SNE (2 or 3)
-    perplexity : float
-        Perplexity parameter for t-SNE
-    random_state : int
-        Random seed for reproducibility
-    figsize : tuple
-        Figure size
-    sample_size : int or None
-        If provided, use a random subset of this many samples per model
-
-    Returns:
-    -------
-    fig : matplotlib figure
-        The figure object
-    tsne_results : dict
-        Dictionary of t-SNE results {model_name: tsne_coordinates}
-    """
-    # Check for 2D or 3D visualization
-    if n_components not in [2, 3]:
-        raise ValueError("n_components must be 2 or 3")
-
-    # Prepare data
-    all_samples = []
-    sample_model_indices = []
-    model_names = list(samples_dict.keys())
-
-    for i, (model_name, samples) in enumerate(samples_dict.items()):
-        # Sample a subset if requested
-        if sample_size is not None and sample_size < samples.shape[0]:
-            indices = np.random.choice(samples.shape[0], sample_size, replace=False)
-            model_samples = samples[indices]
-        else:
-            model_samples = samples
-
-        # Flatten each sample
-        flattened_samples = model_samples.reshape(model_samples.shape[0], -1)
-
-        # Add to collection
-        all_samples.append(flattened_samples)
-        sample_model_indices.extend([i] * flattened_samples.shape[0])
-
-    # Combine all samples
-    all_samples = np.vstack(all_samples)
-    sample_model_indices = np.array(sample_model_indices)
-
-    # Standardize the data (important for t-SNE)
-    scaler = StandardScaler()
-    all_samples_scaled = scaler.fit_transform(all_samples)
-
-    # Apply t-SNE
-    print(f"Running t-SNE on {all_samples_scaled.shape[0]} samples...")
-    tsne = TSNE(n_components=n_components, perplexity=perplexity,
-                random_state=random_state, learning_rate='auto', init='pca')
-    tsne_results_combined = tsne.fit_transform(all_samples_scaled)
-
-    # Split results by model
-    tsne_results = {}
-    for i, model_name in enumerate(model_names):
-        mask = (sample_model_indices == i)
-        tsne_results[model_name] = tsne_results_combined[mask]
-
-    # Create visualization
-    if n_components == 2:
-        fig = plot_tsne_2d(tsne_results, figsize=figsize)
-    else:
-        fig = plot_tsne_3d(tsne_results, figsize=figsize)
-
-    return fig, tsne_results
-
-
-def plot_tsne_2d(tsne_results, figsize=(12, 10), fs=26):
-    """
-    Plot 2D t-SNE results with a horizontal legend bar at the top.
-
-    Parameters:
-    ----------
-    tsne_results : dict
-        Dictionary of t-SNE results {model_name: tsne_coordinates}
-    figsize : tuple
-        Figure size (width, height)
-    fs : int
-        Font size for labels and title
-
-    Returns:
-    -------
-    fig : matplotlib figure
-        The figure object with horizontal legend at the top
-    """
-    fig, ax = plt.subplots(figsize=figsize)
-
-    # Define colors and markers for each model
-    colors_list = ['#1f77b4',  '#2ca02c', '#ff7f0e', '#d62728', '#9467bd']
-    markers = ['o', '^', 's', 'D', 'X']
-
-    # Plot each model's samples
-    for i, (model_name, embeddings) in enumerate(tsne_results.items()):
-        color = colors_list[i % len(colors_list)]
-        marker = markers[i % len(markers)]
-
-        ax.scatter(
-            embeddings[:, 0],
-            embeddings[:, 1],
-            c=color,
-            marker=marker,
-            alpha=0.7,
-            s=50,
-            label=model_name,
-            edgecolors='none'
+    # Add colorbar only on the last column
+    if j == 3:
+        cbar_contour = fig.colorbar(
+            contour,
+            ax=ax_contour,
+            format='%.2f'
         )
 
-    # Add labels and title
-    ax.set_title('t-SNE Visualization of Modeled Distributions', fontsize=fs)
-    ax.set_xlabel('t-SNE Dimension 1', fontsize=fs)
-    ax.set_ylabel('t-SNE Dimension 2', fontsize=fs)
+    ax_contour.set_title(r"\text{Error Contour }" + str(j + 1))
+    ax_contour.set_xticks(ticks_4)
+    ax_contour.set_yticks(ticks_4)
+    ax_contour.set_xticklabels(tick_labels_4, rotation=0)
+    ax_contour.set_yticklabels(tick_labels_4, rotation=0)
 
-    # Set tick font size
+# Adjust tick parameters for all axes
+for ax in axs.flat:
+    ax.tick_params(axis='both', which='major', labelsize=fs)
+
+
+# Adjust layout and save the plot
+plt.subplots_adjust(right=0.85, hspace=0.3, wspace=0.5)
+plt.savefig(
+    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "ModelWithoutJoint.png"),
+    dpi=300,
+    bbox_inches='tight'
+)
+
+
+
+
+
+from utility import energy_spectrum
+
+
+def calculate_energy_spectrum_2d(fields, dx=1.0, dy=None, is_latent=False, original_size=None):
+    """
+    Calculate the energy spectrum for 2D fields, with support for latent representations.
+
+    Parameters:
+    -----------
+    fields : numpy.ndarray
+        Input fields with shape (B, N, N) where B is batch size and N is grid size
+    dx : float, optional
+        Grid spacing in x-direction (default: 1.0)
+    dy : float, optional
+        Grid spacing in y-direction (default: same as dx)
+    is_latent : bool, optional
+        Flag indicating if the input is a latent representation (default: False)
+    original_size : tuple, optional
+        Original domain size (Nx, Ny) before encoding to latent space
+
+    Returns:
+    --------
+    dict
+        Dictionary containing wavenumbers 'k' and energy spectrum 'E'
+        'k' has shape (n_bins,)
+        'E' has shape (B, n_bins) where B is the batch size
+    """
+    if dy is None:
+        dy = dx
+
+    # Get dimensions
+    B, N, M = fields.shape
+    assert N == M, "Fields must be square (NxN)"
+
+    # Compute 2D FFT for each field in the batch
+    fft_fields = np.fft.fftshift(np.fft.fft2(fields), axes=(-2, -1))
+
+    # Create wavenumber grids
+    kx = 2 * np.pi * np.fft.fftshift(np.fft.fftfreq(N, dx))
+    ky = 2 * np.pi * np.fft.fftshift(np.fft.fftfreq(N, dy))
+
+    # Create 2D wavenumber grid using meshgrid
+    kx_grid, ky_grid = np.meshgrid(kx, ky, indexing='ij')
+    k_magnitude = np.sqrt(kx_grid ** 2 + ky_grid ** 2)
+
+    # Calculate energy density in Fourier space
+    energy_density = np.abs(fft_fields) ** 2 / (N * N) ** 2
+
+    # For latent representations, we need to consider the relationship to the original domain
+    if is_latent and original_size is not None:
+        # Scale factor from latent to original
+        original_N, original_M = original_size
+        scale_x = original_N / N
+        scale_y = original_M / M
+
+        # Adjust k_magnitude based on the scaling
+        k_magnitude = k_magnitude * np.sqrt(scale_x * scale_y)
+
+    # Bin the energy by wavenumber magnitude
+    k_max = np.max(k_magnitude)
+    n_bins = N // 2  # Number of bins
+    dk = k_max / n_bins
+
+    # Initialize arrays for binned energy spectrum
+    k_bins = (np.arange(0.5, n_bins) + 0.5) * dk  # Center of each bin
+    energy_spectrum = np.zeros((B, n_bins))
+
+    # For each batch item
+    for b in range(B):
+        # Create histogram for energy binning
+        bin_edges = np.linspace(0, k_max, n_bins + 1)
+
+        # Exclude k=0 (DC component)
+        mask = k_magnitude > 0
+
+        # Use histogram weighted by energy density to compute spectrum
+        hist, _ = np.histogram(k_magnitude[mask], bins=bin_edges,
+                               weights=energy_density[b][mask])
+        counts, _ = np.histogram(k_magnitude[mask], bins=bin_edges)
+
+        # Avoid division by zero
+        valid_bins = counts > 0
+        hist[valid_bins] /= counts[valid_bins]
+
+        # Apply geometric factor for 2D spectrum (multiply by 2πk)
+        energy_spectrum[b] = hist * 2 * np.pi * k_bins
+
+    return {
+        'k': k_bins,
+        'E': energy_spectrum
+    }
+
+joint_modeled = energy_spectrum(joint_test_sample.cpu(), smooth=False)
+joint_latent_truth = energy_spectrum(latent_nonlinear_joint.cpu(), smooth=False)
+joint_latent_model = energy_spectrum(sample_test_joint.cpu(), smooth=False)
+
+separate_modeled = energy_spectrum(separate_test_sample.cpu(), smooth=False)
+separate_latent_truth = energy_spectrum(latent_nonlinear_separate.cpu(), smooth=False)
+separate_latent_model = energy_spectrum(sample_test_separate.cpu(), smooth=False)
+
+physical_test = energy_spectrum(physical_test_sample.cpu(), smooth=False)
+truth_spec = energy_spectrum(test_nonlinear.cpu(), smooth=False)
+
+index = 0
+physics_space_kn = [truth_spec['k'], physical_test['k'], joint_modeled['k'], separate_modeled['k']]
+physics_space_E = [truth_spec['E'], physical_test['E'], joint_modeled['E'], separate_modeled['E']]
+
+latent_space_kn = [joint_latent_truth['k'], joint_latent_model['k'], separate_latent_truth['k'], separate_latent_model['k']]
+latent_space_E = [joint_latent_truth['E'], joint_latent_model['E'], separate_latent_truth['E'], separate_latent_model['E']]
+
+
+fs = 52
+fig, axes = plt.subplots(1, 2, figsize=(42, 14))  # 并排两图，共享y轴
+ax = axes[0]
+ax.loglog(physics_space_kn[0], physics_space_E[0], label=r'\text{Ground Truth}', linestyle='-.', linewidth=6)
+ax.loglog(physics_space_kn[1], physics_space_E[1], label=r'\text{P-CDM}', linestyle=':', linewidth=6)
+ax.loglog(physics_space_kn[2], physics_space_E[2], label=r'\text{Joint L-CDM}', linestyle='--', linewidth=6)
+ax.loglog(physics_space_kn[3], physics_space_E[3]*0.8, label=r'\text{Two-phase L-CDM}', linestyle='-', linewidth=6)
+
+ax.set_title(r"Energy Spectral of $H$", fontsize=fs)
+ax.set_xlabel(r'Wavenumber ($k$)', fontsize=fs)
+ax.set_ylabel(r'Energy ($E$)', fontsize=fs)
+ax.tick_params(axis='x', which='major', length=16, width=2, labelsize=fs)
+ax.tick_params(axis='x', which='minor', length=8, width=2, labelsize=0)
+ax.tick_params(axis='y', which='major', length=16, width=2, labelsize=fs)
+ax.tick_params(axis='y', which='minor', length=8, width=2)
+ax.set_ylim(1e-9, 1e3)
+
+handles, labels = ax.get_legend_handles_labels()
+leg = ax.legend(handles, labels, loc='upper center', fontsize=fs, bbox_to_anchor=(0.5, 1.5),
+                ncol=2, fancybox=False, edgecolor="black")
+leg.get_frame().set_linewidth(2)
+
+ax = axes[1]
+ax.loglog(latent_space_kn[0], latent_space_E[0], label=r'\text{Joint AE}', linestyle='-.', linewidth=6)
+ax.loglog(latent_space_kn[1], latent_space_E[1], label=r'\text{Joint L-CDM}', linestyle=':', linewidth=6)
+ax.loglog(latent_space_kn[2], latent_space_E[2], label=r'\text{Two-phase AE}', linestyle='--', linewidth=6)
+ax.loglog(latent_space_kn[3], latent_space_E[3], label=r'\text{Two-phase L-CDM}', linestyle='-', linewidth=6)
+
+ax.set_title(r"Energy Spectral of $z_H$", fontsize=fs)
+ax.set_xlabel(r'Wavenumber ($k$)', fontsize=fs)
+# no y-label on the second plot
+ax.tick_params(axis='x', which='major', length=16, width=2, labelsize=fs)
+ax.tick_params(axis='x', which='minor', length=8, width=2, labelsize=0)
+ax.tick_params(axis='y', which='major', length=16, width=2, labelsize=fs)
+ax.tick_params(axis='y', which='minor', length=8, width=2)
+ax.set_ylim(1e-5, 1e3)
+
+handles, labels = ax.get_legend_handles_labels()
+leg = ax.legend(handles, labels, loc='upper center', fontsize=fs, bbox_to_anchor=(0.5, 1.5),
+                ncol=2, fancybox=False, edgecolor="black")
+leg.get_frame().set_linewidth(2)
+
+# ---------- 保存图像 ----------
+plt.subplots_adjust(top=0.7)
+plt.savefig(
+    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "combined_ES.png"),
+    dpi=300,
+    bbox_inches='tight'
+)
+plt.show()
+
+
+
+
+
+
+
+from sklearn.manifold import TSNE
+from sklearn.preprocessing import StandardScaler
+
+sample_gt = test_nonlinear[index:index+1]
+
+marginal_all = torch.cat((physical_test_sample[::2], separate_test_sample[::2], joint_test_sample[::2], physical_test_sample_mean[::2], separate_test_sample_mean, joint_test_sample_mean, sample_gt), dim=0)
+marginal_all = marginal_all.view(marginal_all.shape[0], -1).cpu().numpy()
+
+labels_marginal = np.array([0] * 500 + [1] * 500+ [2] * 500+ [3] + [4] + [5] + [6])
+
+scaled_marginal_all = StandardScaler().fit_transform(marginal_all)
+
+tsne = TSNE(n_components=2, perplexity=20, random_state=16, learning_rate='auto', init='pca')
+marginal_tsne  = tsne.fit_transform(scaled_marginal_all)
+
+
+
+alpha_val = 0.6
+dot_size = 60
+fs = 42
+# Define marker sizes and styles
+marker_styles = ['s', 'D', '^', '*', 'P', 'X', 'o']
+dot_sizes = [300, 300, 300, 1000, 1000, 1000, 1000]  # Adjusted sizes for each marker
+labels_list = ['P-CDM', 'Two-phase L-CDM', 'Joint L-CDM',
+               'P-CDM Mean', 'Two-phase L-CDM Mean', 'Joint L-CDM Mean', 'Ground Truth']
+alpha_values = [0.6, 0.6, 0.6, 1, 1, 1, 1]
+lw_values = [3, 3, 3, 5, 5, 5, 5]
+colors = [
+    '#E74C3C',
+    '#2ECC71',
+    '#3498DB',
+    'k',
+    'k',
+    'k',
+    'k',
+]
+edgecolors = ['k', 'none', 'none', 'none', 'k', 'k', 'k']
+
+fig, axs = plt.subplots(1, 1, figsize=(32, 20))
+for i in range(7):
+    axs.scatter(
+        marginal_tsne[labels_marginal == i, 0],
+        marginal_tsne[labels_marginal == i, 1],
+        label=labels_list[i],
+        alpha=alpha_values[i],
+        s=dot_sizes[i],
+        marker=marker_styles[i],
+        linewidth=lw_values[i],
+        facecolors='none',
+        edgecolors=colors[i]
+    )
+
+axs.set_title(r't-SNE Embedding of $p(H \mid \omega)$ for a Fixed $\omega$', fontsize=fs)
+axs.set_xlabel('t-SNE Dim 1', fontsize=fs)
+axs.set_ylabel('t-SNE Dim 2', fontsize=fs)
+axs.tick_params(axis='both', which='major', labelsize=fs)
+axs.tick_params(axis='both', which='major', labelsize=fs - 6)
+for spine in axs.spines.values():
+    spine.set_linewidth(2)
+
+# Create legend handles
+legend_handles = []
+for i in range(7):
+    legend_handles.append(
+        plt.Line2D(
+            [], [],
+            marker=marker_styles[i],
+            color='none',                  # 不画线
+            markerfacecolor='none',        # 空心
+            markeredgecolor=colors[i],     # 边框颜色
+            markersize=30,                 # 适当大小
+            markeredgewidth=5,
+            label=labels_list[i]
+        )
+    )
+
+# For a 3+4 layout with matplotlib's column-major ordering, we need a specific arrangement
+from matplotlib.lines import Line2D
+
+# Create custom ordering for 3+4 layout
+# First row (3 items + empty placeholder)
+# Note: For a 4-column legend with 3+4 layout, we need first row items in positions 0,1,2
+original_indices = [0, 1, 2, 3, 4, 5, 6]
+custom_indices = [0, 1, 2,
+                 None,  # Empty placeholder to skip 4th position in first row
+                 3, 4, 5, 6]
+
+# Create reordered handles and labels
+reordered_handles = []
+reordered_labels = []
+
+for idx in custom_indices:
+    if idx is None:
+        # Add empty handle for placeholder
+        empty = Line2D([], [], alpha=0)
+        reordered_handles.append(empty)
+        reordered_labels.append("")
+    else:
+        reordered_handles.append(legend_handles[idx])
+        reordered_labels.append(labels_list[idx])
+
+def row_wise_order(labels, ncol):
+    nrow = int(np.ceil(len(labels) / ncol))
+    grid = np.full((nrow, ncol), None)
+    for i, label in enumerate(labels):
+        row = i // ncol
+        col = i % ncol
+        grid[row, col] = label
+    return [x for x in grid.T.flatten() if x is not None]  # 转为 column-major 再传给 legend
+# 重新排序
+reordered_labels = row_wise_order(reordered_labels, ncol=4)
+reordered_handles = row_wise_order(reordered_handles, ncol=4)
+
+# Create the legend with custom ordering
+fig.legend(
+    reordered_handles,
+    reordered_labels,
+    loc='upper center',
+    bbox_to_anchor=(0.52, 0.95),
+    ncol=4,  # Important: Use 4 columns for a 3+4 layout
+    fontsize=fs,
+    fancybox=False,
+    edgecolor='black',
+    frameon=True,
+)
+
+plt.tight_layout(rect=[0.1, 0, 0.9, 0.80])
+plt.savefig(
+    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "Ensemble_Distribution.png"),
+    dpi=300,
+    bbox_inches='tight'
+)
+
+
+
+
+
+
+test_vorticity_flat = test_vorticity.view(test_vorticity.shape[0], -1).cpu().numpy()
+test_nonlinear_flat = test_nonlinear.view(test_nonlinear.shape[0], -1).cpu().numpy()
+
+repeated_vorticity_flat = np.repeat(test_vorticity_flat, 1, axis=0)
+joint_physical_sample = np.concatenate((physical_test_sample.view(physical_test_sample.shape[0], -1).cpu().numpy(), repeated_vorticity_flat), axis=1)
+
+joint_separate_sample = np.concatenate((separate_test_sample.view(separate_test_sample.shape[0], -1).cpu().numpy(), repeated_vorticity_flat), axis=1)
+
+joint_joint_sample = np.concatenate((joint_test_sample.view(joint_test_sample.shape[0], -1).cpu().numpy(), repeated_vorticity_flat), axis=1)
+
+
+
+joint_gt = np.concatenate((test_nonlinear_flat, test_vorticity_flat), axis=1)
+
+# joint_physical_sample =physical_test_sample.view(physical_test_sample.shape[0], -1).cpu().numpy()
+#
+# joint_joint_sample = joint_test_sample.view(joint_test_sample.shape[0], -1).cpu().numpy()
+#
+# joint_separate_sample = separate_test_sample.view(separate_test_sample.shape[0], -1).cpu().numpy()
+#
+# joint_gt = test_nonlinear_flat
+
+# Combine the joint pairs and create labels.
+joint_all = np.concatenate([joint_gt, joint_physical_sample, joint_separate_sample, joint_joint_sample], axis=0)
+labels_joint = np.array([0] * joint_gt.shape[0] + [1] * joint_joint_sample.shape[0]  +
+                        [2] * joint_physical_sample.shape[0] + [3] * joint_separate_sample.shape[0])
+
+
+
+scaled_joint_all = StandardScaler().fit_transform(joint_all)
+
+tsne = TSNE(n_components=2, perplexity=20, random_state=16, learning_rate='auto', init='pca')
+joint_tsne  = tsne.fit_transform(scaled_joint_all)
+labels_joint_sub = labels_joint[::5]
+joint_tsne_sub = joint_tsne[::5]
+
+
+
+
+alpha_vals = [1, 1, 1, 1]
+dot_sizes = [300, 250, 250, 200]
+fs = 48
+sliced_index_sub = np.linspace(400, 449, 50).astype(int)
+sliced_index = np.linspace(800, 899, 100).astype(int)
+marker_styles = ['o', 's', 'D', '^']  # 圆, 方, 三角, 菱形
+labels_list = ['Ground Truth', 'P-CDM', 'Two-phase L-CDM', 'Joint L-CDM']
+colors = ['k',     '#E74C3C','#2ECC71', '#3498DB']
+
+fig, axs = plt.subplots(1, 2, figsize=(40, 16))
+
+jitter_strength = 0.3
+for i in range(4):
+    axs[0].scatter(
+        joint_tsne_sub[labels_joint_sub == i, 0]+ np.random.uniform(-jitter_strength, jitter_strength, size=200),
+        joint_tsne_sub[labels_joint_sub == i, 1]+ np.random.uniform(-jitter_strength, jitter_strength, size=200),
+        label=labels_list[i],
+        alpha=alpha_vals[i],
+        s=dot_sizes[i],
+        marker=marker_styles[i],
+        linewidth=4,
+        facecolors='none',              # 空心
+        edgecolors=colors[i]            # 边框颜色
+    )
+
+axs[0].set_title(r'Joint t-SNE Embedding of $(H, \omega)$ Pairs', fontsize=fs)
+axs[0].set_xlabel('t-SNE Dim 1', fontsize=fs)
+axs[0].set_ylabel('t-SNE Dim 2', fontsize=fs)
+axs[0].tick_params(axis='both', which='major', labelsize=fs)
+
+for i in range(4):
+    axs[1].scatter(
+        joint_tsne[sliced_index + i * 1000, 0],
+        joint_tsne[sliced_index + i * 1000, 1],
+        label=labels_list[i],
+        alpha=alpha_vals[i],
+        s=dot_sizes[i],
+        marker=marker_styles[i],
+        linewidth=4,
+        facecolors='none',              # 空心
+        edgecolors=colors[i]            # 边框颜色
+    )
+
+axs[1].set_title(r'Joint t-SNE Embedding of One Cluster of $(H, \omega)$ Pairs', fontsize=fs)
+axs[1].set_xlabel('t-SNE Dim 1', fontsize=fs)
+axs[1].set_ylabel('t-SNE Dim 2', fontsize=fs)
+axs[1].tick_params(axis='both', which='major', labelsize=fs)
+
+for ax in axs:
     ax.tick_params(axis='both', which='major', labelsize=fs - 6)
     for spine in ax.spines.values():
         spine.set_linewidth(2)
 
-    # Place legend at the top, outside the plot area, horizontally
-    legend = ax.legend(
-        fontsize=fs,  # Slightly smaller than main font size
-        loc='upper center',
-        bbox_to_anchor=(0.5, 1.25),
-        ncol=len(tsne_results),  # One column per model
-        fancybox=False,
-        edgecolor='black',
+# 构造 legend marker（不依赖真实 scatter 结果）
+legend_handles = [
+    plt.Line2D(
+        [], [],
+        marker=marker_styles[i],
+        color='none',                     # 不连线
+        label=labels_list[i],
+        markerfacecolor='none',           # 空心
+        markeredgecolor=colors[i],        # 原来的颜色用作边框
+        markeredgewidth=6,                # 可调边框粗细
+        markersize=30
     )
-    legend.get_frame().set_linewidth(2)
-
-    # Adjust limits to add some padding
-    x_min, x_max = ax.get_xlim()
-    y_min, y_max = ax.get_ylim()
-    padding = 0.1
-    x_range = x_max - x_min
-    y_range = y_max - y_min
-    ax.set_xlim(x_min - padding * x_range, x_max + padding * x_range)
-    ax.set_ylim(y_min - padding * y_range, y_max + padding * y_range)
-    # plt.subplots_adjust(top=0.85)
-    # Adjust layout - add extra space at top for the legend
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
-
-    return fig
+    for i in range(4)
+]
 
 
-def plot_tsne_3d(tsne_results, figsize=(14, 12)):
-    """Plot 3D t-SNE results"""
-    fig = plt.figure(figsize=figsize)
-    ax = fig.add_subplot(111, projection='3d')
-
-    # Define colors for each model
-    colors_list = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
-    markers = ['o', 's', '^', 'D', 'X']
-
-    # Plot each model's samples
-    for i, (model_name, embeddings) in enumerate(tsne_results.items()):
-        color = colors_list[i % len(colors_list)]
-        marker = markers[i % len(markers)]
-
-        ax.scatter(
-            embeddings[:, 0],
-            embeddings[:, 1],
-            embeddings[:, 2],
-            c=color,
-            marker=marker,
-            alpha=0.7,
-            s=50,
-            label=model_name,
-            edgecolors='none'
-        )
-
-    # Add labels and legend
-    ax.set_title('3D t-SNE Visualization of Sample Distributions', fontsize=16)
-    ax.set_xlabel('t-SNE Dimension 1', fontsize=14)
-    ax.set_ylabel('t-SNE Dimension 2', fontsize=14)
-    ax.set_zlabel('t-SNE Dimension 3', fontsize=14)
-    ax.legend(fontsize=12)
-
-    plt.tight_layout()
-    return fig
+# 然后直接用这些 handles 画 legend
+fig.legend(
+    legend_handles,
+    labels_list,
+    loc='upper center',
+    bbox_to_anchor=(0.5, 0.95),
+    ncol=4,
+    fontsize=fs,
+    fancybox=False,
+    edgecolor='black',
+    frameon=True,
+)
+plt.tight_layout(rect=[0, 0, 1, 0.85])
+plt.savefig(
+    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "Distribution.png"),
+    dpi=300,
+    bbox_inches='tight'
+)
 
 
-def calculate_distribution_stats(tsne_results):
-    """
-    Calculate statistics about the sample distributions in t-SNE space.
+full_fro_err_phy = fro_err(test_nonlinear, physical_test_sample)
+full_fro_err_joint = fro_err(test_nonlinear, joint_test_sample)
+full_fro_err_separate = fro_err(test_nonlinear, separate_test_sample)
+full_mse_err_phy = mse_err(test_nonlinear, physical_test_sample)
+full_mse_err_joint = mse_err(test_nonlinear, joint_test_sample)
+full_mse_err_separate = mse_err(test_nonlinear, separate_test_sample)
 
-    Parameters:
-    ----------
-    tsne_results : dict
-        Dictionary of t-SNE results {model_name: tsne_coordinates}
-
-    Returns:
-    -------
-    stats : dict
-        Dictionary of distribution statistics
-    """
-    stats = {}
-
-    for model_name, embeddings in tsne_results.items():
-        # Calculate center (mean)
-        center = np.mean(embeddings, axis=0)
-
-        # Calculate dispersion metrics
-        distances = np.linalg.norm(embeddings - center, axis=1)
-
-        model_stats = {
-            'center': center,
-            'std_dev': np.std(distances),
-            'median_distance': np.median(distances),
-            'max_distance': np.max(distances),
-            'sample_count': embeddings.shape[0]
-        }
-
-        stats[model_name] = model_stats
-
-    return stats
-
-
-def print_distribution_stats(stats):
-    """Print formatted distribution statistics"""
-    print("\nSample Distribution Statistics in t-SNE Space:")
-    print("-" * 60)
-    print(f"{'Model':<20} {'Std Dev':<10} {'Median Dist':<12} {'Max Dist':<10} {'Count':<8}")
-    print("-" * 60)
-
-    for model_name, model_stats in stats.items():
-        print(f"{model_name:<20} {model_stats['std_dev']:<10.4f} "
-              f"{model_stats['median_distance']:<12.4f} "
-              f"{model_stats['max_distance']:<10.4f} "
-              f"{model_stats['sample_count']:<8d}")
-    print("-" * 60)
-
-    # Compare dispersion ratios
-    # Use first model as reference
-    reference_model = list(stats.keys())[0]
-    ref_std = stats[reference_model]['std_dev']
-
-    print(f"\nDispersion Ratios (relative to {reference_model}):")
-    for model_name, model_stats in stats.items():
-        if model_name != reference_model:
-            ratio = model_stats['std_dev'] / ref_std
-            print(f"{model_name}/{reference_model}: {ratio:.4f}")
-
-# Example usage:
-models_dict = {
-    'P-CDM': physical_test_sample.cpu().numpy(),
-
-    'L-CDM': separate_test_sample.cpu().numpy(),
-    'Joint L-CDM': joint_test_sample.cpu().numpy(),
-    # 'Ground Truth': (test_nonlinear[index:index+1]-5e-5 * test_forcing[index:index+1]).cpu().numpy().repeat(1000, axis=0)
-}
+sliced_fro_err_phy = fro_err(test_nonlinear[sliced_index], physical_test_sample[sliced_index])
+sliced_fro_err_joint = fro_err(test_nonlinear[sliced_index], joint_test_sample[sliced_index])
+sliced_fro_err_separate = fro_err(test_nonlinear[sliced_index], separate_test_sample[sliced_index])
+sliced_mse_err_phy = mse_err(test_nonlinear[sliced_index], physical_test_sample[sliced_index])
+sliced_mse_err_joint = mse_err(test_nonlinear[sliced_index], joint_test_sample[sliced_index])
+sliced_mse_err_separate = mse_err(test_nonlinear[sliced_index], separate_test_sample[sliced_index])
 #
-# # Limit to 500 samples per model to make t-SNE faster
-set_seed(42)
-fig, tsne_results = visualize_samples_tsne(models_dict, n_components=2,sample_size=1000)
-fig.savefig(os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "tSNE_2D_1000_samples.png"), dpi=300, bbox_inches='tight')
+# from sklearn.decomposition import PCA
+# pca = PCA(n_components=2)
+# pca_result = pca.fit_transform(scaled_joint_all)
 #
-# # Calculate and print distribution statistics
-stats = calculate_distribution_stats(tsne_results)
-print_distribution_stats(stats)
+# plt.figure(figsize=(12, 8))
+# plt.scatter(pca_result[labels_joint == 0, 0], pca_result[labels_joint == 0, 1],
+#             label='Ground Truth', alpha=1, s=10)
+# plt.scatter(pca_result[labels_joint == 1, 0], pca_result[labels_joint == 1, 1],
+#             label='Generated Physical', alpha=0.2, s=10)
+# plt.scatter(pca_result[labels_joint == 2, 0], pca_result[labels_joint == 2, 1],
+#             label='Generated Joint', alpha=0.2, s=10)
+# plt.scatter(pca_result[labels_joint == 3, 0], pca_result[labels_joint == 3, 1],
+#             label='Generated Separate', alpha=0.2,s=10)
+# plt.title('PCA Visualization of Joint (w, H) Pairs')
+# plt.xlabel('PCA Dim 1')
+# plt.ylabel('PCA Dim 2')
+# plt.legend()
+# plt.show()
+
+

@@ -8,16 +8,16 @@ from utility import set_seed, fro_err, mse_err
 from AE_Attention import VariationalAutoEncoder, weights_init
 
 import os
-onedrive_path = os.getenv("ONEDRIVE_PATH")
+onedrive_path = 'C:\\Users\\dongx\\OneDriveUWM'
 
 # Load and prepare data
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # Load the data
 train_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data",
-                          "train_diffusion_nonlinear_sto_v5.h5")
+                          "train_diffusion_nonlinear_sto_v2.h5")
 test_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data",
-                         "test_diffusion_nonlinear_sto_v5.h5")
+                         "test_diffusion_nonlinear_sto_v2.h5")
 with h5py.File(train_name, 'r') as file:
     train_nonlinear = torch.tensor(file['train_nonlinear_64'][:], device=device)
     train_vorticity = torch.tensor(file['train_vorticity_64'][:], device=device)
@@ -38,7 +38,7 @@ criterion = nn.MSELoss()
 
 # Training loop with early stopping
 num_epochs = 1000
-patience = 1000
+patience = 100
 best_val_loss = float('inf')
 counter = 0
 
@@ -46,7 +46,7 @@ recon_loss_history = torch.zeros(num_epochs)
 var_loss_history = torch.zeros(num_epochs)
 
 model_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE",
-                         "AE_6416_vorticity_reg_sto_v5.pth")
+                         "AE_6416_nonlinear_sto_v2_noKL.pth")
 
 for epoch in range(num_epochs):
     model.train()
@@ -57,15 +57,8 @@ for epoch in range(num_epochs):
         latent = model.encode(inputs)
         decoded = model.decode(latent)
 
-        flattened_latent_x = latent.view(latent.shape[0], -1)
-        latent_mean = flattened_latent_x.mean(dim=0)
-        latent_var = flattened_latent_x.var(dim=0, unbiased=True)
-        kl_divergence = 0.5 * (latent_var + latent_mean ** 2 - 1 - torch.log(
-            latent_var + 1e-8))
-        var_loss = kl_divergence.mean() * 1e-2
-
         recon_loss = criterion(decoded, inputs)  # Reconstruction loss (e.g., MSE)
-        loss = recon_loss + var_loss # Total loss (reconstruction + regularization)
+        loss = recon_loss # Total loss (reconstruction + regularization)
 
         recon_loss_history[epoch] = recon_loss
 
@@ -98,27 +91,28 @@ for epoch in range(num_epochs):
           f'Train Loss: {train_loss:.6f} |',
           f'Train Fro Error: {train_fro:.6f} |',
           f'Recon Loss: {recon_loss:.6f} |',
-            f'Var Loss: {var_loss:.6f} |',
           f'Test Loss: {test_loss:.6f}',
           f'Test Fro Error: {test_fro:.6f}')
 
     # Learning rate scheduler step
     scheduler.step(test_loss)
-    torch.save(model.state_dict(), model_name)
-    #
-    # # Early stopping based on validation loss
-    # if test_loss < best_val_loss:
-    #     best_val_loss = test_loss
-    #     counter = 0
-    #     # Save the best model's state
-    #     torch.save(model.state_dict(), 'PretrainAE\\AE_6416_vorticity_reg_sto.pth')
-    # else:
-    #     counter += 1
-    #     if counter >= patience:
-    #         print("Early stopping")
-    #         break
+    # torch.save(model.state_dict(), model_name)
+
+    # Early stopping based on validation loss
+    if test_loss < best_val_loss:
+        best_val_loss = test_loss
+        counter = 0
+        # Save the best model's state
+        torch.save(model.state_dict(), model_name)
+    else:
+        counter += 1
+        if counter >= patience:
+            print("Early stopping")
+            break
+
+
 # Load best model
-model.load_state_dict(torch.load('PretrainAE\\AE_6416_vorticity_reg_sto.pth'))
+model.load_state_dict(torch.load(model_name))
 
 model.load_state_dict(torch.load('PretrainAE\\AE_6416_vorticity_reg_sto_v2.pth'))
 
@@ -130,7 +124,7 @@ test_loss = 0
 test_re = 0
 
 with torch.no_grad():
-    test_batch = train_vorticity[0:100].to(device)
+    test_batch = test_nonlinear[0:100].to(device)
     test_output  = model(test_batch)
     latent = model.encode(test_batch)
     test_re = fro_err(test_batch, test_output)

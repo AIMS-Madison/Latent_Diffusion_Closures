@@ -80,7 +80,10 @@ def energy_spectrum(phi, lx=1, ly=1, smooth=True):
 
     knyquist = knorm * min(nx, ny) / 2
 
-    return knyquist, wave_numbers, energy_spectrum
+    return {
+        'k': wave_numbers,
+        'E': energy_spectrum
+    }
 
 ################################
 ########### Plotting ###########
