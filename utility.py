@@ -78,45 +78,15 @@ def energy_spectrum(phi, lx=1, ly=1, smooth=True):
         smoothed_spectrum[:4] = np.sum(energy_h[:, :4, :4].real, axis=(0, 1, 2)) / (knorm * phi.shape[0])  # First 4 values corrected
         energy_spectrum = smoothed_spectrum
 
-    knyquist = knorm * min(nx, ny) / 2
-
     return {
         'k': wave_numbers,
         'E': energy_spectrum
     }
 
-################################
-########### Plotting ###########
-################################
-def plot_heatmaps(original, sample, num_samples=5):
-    fig, axes = plt.subplots(2, num_samples, figsize=(4 * num_samples, 8))
-
-    for i in range(num_samples):
-        # Plot original
-        sns.heatmap(original[i], ax=axes[0, i], cmap='coolwarm', cbar=True, square=True)
-        axes[0, i].set_title(f'Original {i + 1}')
-        axes[0, i].axis('off')
-
-        # Plot reconstructed
-        sns.heatmap(sample[i], ax=axes[1, i], cmap='coolwarm', cbar=True, square=True)
-        axes[1, i].set_title(f'Generated {i + 1}')
-        axes[1, i].axis('off')
-
-    plt.tight_layout()
-    plt.show()
-
 def mse_err(data1, data2):
     return torch.mean((data1 - data2) ** 2)
-
-def max_err(data1, data2):
-    error_max = torch.amax(torch.abs(data1 - data2), dim=(1, 2))
-    return torch.mean(error_max / torch.amax(torch.abs(data1), dim=(1, 2)))
 
 def fro_err(data1, data2):
     error_fro = torch.linalg.matrix_norm(data1 - data2, 'fro', dim=(1, 2))
     return torch.mean(error_fro / torch.linalg.matrix_norm(data1, 'fro', dim=(1, 2)))
-
-def spectral_err(data1, data2):
-    error_spec = torch.linalg.matrix_norm(data1 - data2, 2, dim=(1, 2))
-    return torch.mean(error_spec / torch.linalg.matrix_norm(data1, 2, dim=(1, 2)))
 
