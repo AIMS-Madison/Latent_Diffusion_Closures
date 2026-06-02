@@ -2,6 +2,12 @@
 import os
 import warnings
 import time
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 ### Scientific Computing & Deep Learning Libraries
 import numpy as np
@@ -20,6 +26,9 @@ import matplotlib as mpl
 from DiffusionModel import marginal_prob_std, diffusion_coeff, FNO2d_Orig, loss_fn
 from utility import get_sigmas_karras, fro_err, mse_err, set_seed
 from AE_Attention import VariationalAutoEncoder
+from project_paths import resolve_input_path, resolve_output_path
+from sampling_utils import diffusion_sampler
+from training_utils import create_ticks_labels, get_device, safe_cuda_synchronize
 
 ### Configure Matplotlib for LaTeX Rendering (if available)
 plt.rc("text", usetex=True)
@@ -31,22 +40,6 @@ np.set_printoptions(suppress=False, formatter={'float': '{:.2e}'.format})
 torch.set_printoptions(sci_mode=True)
 warnings.filterwarnings("ignore")
 
-# ------------------------------------------------------------------
-# Environment Configuration
-# ------------------------------------------------------------------
-
-### Get OneDrive Path from Environment Variables
-onedrive_path = '/mnt/c/Users/dongx/OneDriveUWM'
-
-### Check CUDA Availability
-def get_device():
-    if torch.cuda.is_available():
-        print("✅ CUDA is available. Using GPU.")
-        return torch.device('cuda')
-    else:
-        print("❌ CUDA is not available. Using CPU.")
-        return torch.device('cpu')
-
 device = get_device()
 
 # ------------------------------------------------------------------
@@ -54,11 +47,14 @@ device = get_device()
 # ------------------------------------------------------------------
 
 ### Load test dataset from HDF5 file
-test_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data", "test_diffusion_nonlinear_sto_v4.h5")
+test_name = resolve_input_path(
+    "LDM_LES_TEST_DATA",
+    "LES_NSE/navier_stokes_LES_4096_1e-3.h5",
+)
 with h5py.File(test_name, 'r') as file:
-    test_nonlinear = torch.tensor(file['test_nonlinear_64'][:], device=device)
-    test_vorticity = torch.tensor(file['test_vorticity_64'][:], device=device)
-    test_forcing = torch.tensor(file['test_forcing_64'][:], device=device)
+    test_nonlinear = torch.tensor(file['closure_term'][::100], device=device)
+    test_vorticity = torch.tensor(file['filtered_vorticity'][::100], device=device)
+    # test_forcing = torch.tensor(file['test_forcing_64'][:], device=device)
 
 # ------------------------------------------------------------------
 # Model Configuration
@@ -79,18 +75,22 @@ AEW_model = VariationalAutoEncoder().to(device)
 diffusion_model = FNO2d_Orig(marginal_prob_std_fn, modes, modes, width, padding, embed_dim=256, length=1).to(device)
 
 ### Load Pretrained Weights
-diffusion_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_diffusion_6416_sto_v3.pth")
-AEG_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Nonlinear_6416_sto_v3.pth")
-AEW_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Vorticity_6416_sto_v3.pth")
+diffusion_model_save = resolve_input_path(
+    "LDM_JOINT_DIFFUSION_MODEL",
+    "JointAE/Joint_diffusion_LES_6416.pth",
+)
+AEG_model_save = resolve_input_path(
+    "LDM_JOINT_CLOSURE_AE",
+    "JointAE/Joint_AE_Closure_6416.pth",
+)
+AEW_model_save = resolve_input_path(
+    "LDM_JOINT_VORTICITY_AE",
+    "JointAE/Joint_AE_Vorticity_6416.pth",
+)
 
-diffusion_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE", "PretrainAE_Diffusion_reg_sto_v2.pth")
-AEG_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE", "AE_6416_nonlinear_reg_sto_v2.pth")
-AEW_model_save = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE", "AE_6416_vorticity_reg_sto_v2.pth")
-
-
-AEG_model.load_state_dict(torch.load(AEG_model_save))
-AEW_model.load_state_dict(torch.load(AEW_model_save))
-diffusion_model.load_state_dict(torch.load(diffusion_model_save))
+AEG_model.load_state_dict(torch.load(AEG_model_save, map_location=device))
+AEW_model.load_state_dict(torch.load(AEW_model_save, map_location=device))
+diffusion_model.load_state_dict(torch.load(diffusion_model_save, map_location=device))
 ### Set Models to Evaluation Mode
 AEG_model.eval()
 AEW_model.eval()
@@ -102,36 +102,18 @@ diffusion_model.eval()
 
 ### Define time noises for the sampling process
 sde_time_min = 1e-3
-sde_time_max = 0.1
+sde_time_max = 0.4
 steps = 10
 time_noises = get_sigmas_karras(steps, sde_time_min, sde_time_max, device=device)
-
-
-### Sampler function using Stochastic Differential Equations (SDE)
-def sampler(vorticity_condition, score_model, spatial_dim, marginal_prob_std, diffusion_coeff, batch_size, num_steps, time_noises, device):
-    t = torch.ones(batch_size, device=device) * time_noises[0]
-    x = torch.randn(batch_size, spatial_dim, spatial_dim, device=device) * marginal_prob_std(t)[:, None, None]
-
-    with torch.no_grad():
-        for i in range(num_steps):
-            batch_time_step = torch.ones(batch_size, device=device) * time_noises[i]
-            step_size = time_noises[i] - time_noises[i + 1]
-            g = diffusion_coeff(batch_time_step)
-            grad = score_model(batch_time_step, x, vorticity_condition)
-
-            mean_x = x + (g ** 2)[:, None, None] * grad * step_size
-            x = mean_x + torch.sqrt(step_size) * g[:, None, None] * torch.randn_like(x)
-
-    return mean_x
 
 
 # ------------------------------------------------------------------
 # Sampling Process
 # ------------------------------------------------------------------
-sample_batch_size = 1000
+sample_batch_size = 100
 sample_spatial_dim = 16
 
-sampler_fn = partial(sampler,
+sampler_fn = partial(diffusion_sampler,
                      spatial_dim=sample_spatial_dim,
                      marginal_prob_std=marginal_prob_std_fn,
                      diffusion_coeff=diffusion_coeff_fn,
@@ -141,7 +123,7 @@ sampler_fn = partial(sampler,
                      device=device)
 
 
-torch.cuda.synchronize()
+safe_cuda_synchronize(device)
 start_time = time.time()
 
 with torch.no_grad():
@@ -149,15 +131,17 @@ with torch.no_grad():
     test_nonlinear_latent = AEG_model.encode(test_nonlinear[:sample_batch_size])
     sample_test = sampler_fn(test_vorticity_latent, diffusion_model)
     sample_pixel = AEG_model.decode(sample_test)
-torch.cuda.synchronize()
+safe_cuda_synchronize(device)
 end_time = time.time()
 print(f"Sampling completed in {end_time - start_time:.4f} seconds.")
 
 fro_err_pixel = fro_err(test_nonlinear[:sample_batch_size], sample_pixel)
-fro_err_latent = fro_err(test_nonlinear_latent, sample_test)
+mse_err_pixel = mse_err(test_nonlinear[:sample_batch_size], sample_pixel)
+fro_err_latent = fro_err(test_nonlinear_latent[:sample_batch_size], sample_test)
+mse_err_latent = mse_err(test_nonlinear_latent[:sample_batch_size], sample_test)
 
 
-torch.cuda.synchronize()
+safe_cuda_synchronize(device)
 start_time = time.time()
 
 index = 10
@@ -169,7 +153,7 @@ with torch.no_grad():
 
     sample_test_mean = sample_test.mean(dim=0, keepdim=True)
     sample_pixel_mean = sample_pixel.mean(dim=0, keepdim=True)
-torch.cuda.synchronize()
+safe_cuda_synchronize(device)
 end_time = time.time()
 print(f"Sampling completed in {end_time - start_time:.4f} seconds.")
 
@@ -193,9 +177,6 @@ mean_fro_err = fro_err(test_nonlinear[index:index+1], sample_pixel_mean)
 sample_latent_mean = sample_test.mean(dim=0, keepdim=True)
 mean_fro_latent_err = fro_err(test_nonlinear_latent[index:index+1], sample_test_mean)
 
-test_nonlinear_nonoise = test_nonlinear - 5e-5 * test_forcing
-fro_err_noise = fro_err(test_nonlinear_nonoise, test_nonlinear)
-
 
 with torch.no_grad():
     test_nonlinear_latent = AEG_model.encode(test_nonlinear[:sample_batch_size])
@@ -205,7 +186,7 @@ with torch.no_grad():
 
 fro_latent = fro_err(test_nonlinear_latent, sample_test)
 mse_latent = mse_err(test_nonlinear_latent, sample_test)
-fro_sample = fro_err(test_nonlinear[:sample_batch_size]- 1e-4 * test_forcing[:sample_batch_size], sample_pixel)
+fro_sample = fro_err(test_nonlinear[:sample_batch_size], sample_pixel)
 mse_sample = mse_err(test_nonlinear[:sample_batch_size], sample_pixel)
 
 fro_AEG = fro_err(test_nonlinear[:sample_batch_size], test_nonlinear_pixel)
@@ -231,12 +212,6 @@ fig, axs = plt.subplots(5, 4, figsize=(20, 25), constrained_layout=True)
 fs = 28
 plt.rcParams.update({'font.size': fs})
 
-# Define tick positions and labels
-def create_ticks_labels(size, step=20):
-    ticks = np.arange(0, size, step * size / 64)
-    tick_labels = [str(int(tick)) for tick in ticks]
-    return ticks, tick_labels
-
 ticks_1, tick_labels_1 = create_ticks_labels(data1.shape[1])
 ticks_2, tick_labels_2 = create_ticks_labels(data2.shape[1])
 ticks_3, tick_labels_3 = create_ticks_labels(data3.shape[1])
@@ -247,11 +222,11 @@ ticks_5, tick_labels_5 = create_ticks_labels(data5.shape[1])
 indices = [torch.randint(0, 100, (1,)).item() for _ in range(4)]
 
 # Define color scale parameters
-latent_max = 2.0
-latent_min = -2.0
-max_val = 1.0
-min_val = -1.0
-err_max = 0.3
+latent_max = 1.6
+latent_min = -1.4
+max_val = 0.2
+min_val = -0.3
+err_max = 0.008
 err_min = 0
 cbar_ticks_latent = np.linspace(latent_min, latent_max, 6)
 cbar_ticks = np.linspace(min_val, max_val, 6)
@@ -364,7 +339,7 @@ for i, idx in enumerate(indices):
         cbar_contour = fig.colorbar(
             contour,
             ax=ax_contour,
-            format='%.2f'
+            format='%.3f'
         )
 
     ax_contour.set_title(r"\text{Error Contour }" + str(j + 1))
@@ -380,9 +355,9 @@ for ax in axs.flat:
 
 # Adjust layout and save the plot
 plt.subplots_adjust(right=0.85, hspace=0.3, wspace=0.5)
-plt.show()
+# plt.show()
 plt.savefig(
-    'C:\\UWMadisonResearch\\Joint_LDM\\Plots\\ModelWithJoint.png',
+    resolve_output_path("figures/LESModelWithJoint.png"),
     dpi=300,
     bbox_inches='tight'
 )

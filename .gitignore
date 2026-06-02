@@ -1,0 +1,38 @@
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# IDE and editor files
+.idea/
+.vscode/
+
+# Notebook working files
+*.ipynb
+.ipynb_checkpoints/
+
+# Data, checkpoints, and generated arrays
+*.h5
+*.hdf5
+*.pth
+*.pt
+*.ckpt
+*.npy
+*.npz
+*.pkl
+*.pickle
+
+# Generated figures and reports
+*.png
+*.jpg
+*.jpeg
+*.pdf
+*.svg
+figures/
+plots/
+outputs/
+results/
+runs/
+
+# Logs
+*.log

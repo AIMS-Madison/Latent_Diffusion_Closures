@@ -2,22 +2,32 @@ import torch
 import torch.nn as nn
 import h5py
 import numpy as np
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 np.set_printoptions(suppress=False, formatter={'float': '{:.2e}'.format})
 torch.set_printoptions(sci_mode=True)
+from project_paths import resolve_input_path, resolve_output_path
+from training_utils import create_ticks_labels, get_device
 from utility import set_seed, fro_err, mse_err
 from AE_Attention import VariationalAutoEncoder, weights_init
 
-import os
-onedrive_path = 'C:\\Users\\dongx\\OneDriveUWM'
-
 # Load and prepare data
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = get_device()
 
 # Load the data
-train_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data",
-                          "train_diffusion_nonlinear_sto_v2.h5")
-test_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data",
-                         "test_diffusion_nonlinear_sto_v2.h5")
+train_name = resolve_input_path(
+    "LDM_TRAIN_DATA",
+    "Data_Convection/train_diffusion_nonlinear_sto_v2.h5",
+)
+test_name = resolve_input_path(
+    "LDM_TEST_DATA",
+    "Data_Convection/test_diffusion_nonlinear_sto_v2.h5",
+)
 with h5py.File(train_name, 'r') as file:
     train_nonlinear = torch.tensor(file['train_nonlinear_64'][:], device=device)
     train_vorticity = torch.tensor(file['train_vorticity_64'][:], device=device)
@@ -45,8 +55,7 @@ counter = 0
 recon_loss_history = torch.zeros(num_epochs)
 var_loss_history = torch.zeros(num_epochs)
 
-model_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE",
-                         "AE_6416_nonlinear_sto_v2_noKL.pth")
+model_name = resolve_output_path("PretrainAE/AE_6416_nonlinear_sto_v2_noKL.pth")
 
 for epoch in range(num_epochs):
     model.train()
@@ -112,9 +121,13 @@ for epoch in range(num_epochs):
 
 
 # Load best model
-model.load_state_dict(torch.load(model_name))
+model.load_state_dict(torch.load(model_name, map_location=device))
 
-model.load_state_dict(torch.load('PretrainAE\\AE_6416_vorticity_reg_sto_v2.pth'))
+vorticity_model = resolve_input_path(
+    "LDM_PRETRAINED_VORTICITY_AE",
+    "PretrainAE/AE_6416_vorticity_reg_sto_v2.pth",
+)
+model.load_state_dict(torch.load(vorticity_model, map_location=device))
 
 
 
@@ -153,12 +166,6 @@ data3 = test_output[:100, :, :].cpu()
 fig, axs = plt.subplots(3, 2, figsize=(10, 12), constrained_layout=True)
 fs = 26
 plt.rcParams.update({'font.size': fs})
-
-# Define tick positions and labels
-def create_ticks_labels(size, step=20):
-    ticks = np.arange(0, size, step * size / 64)
-    tick_labels = [str(int(tick)) for tick in ticks]
-    return ticks, tick_labels
 
 ticks_1, tick_labels_1 = create_ticks_labels(data1.shape[1])
 ticks_2, tick_labels_2 = create_ticks_labels(data2.shape[1])
@@ -228,7 +235,7 @@ plt.show()
 
 
 plt.savefig(
-    'C:\\UWMadisonResearch\\Joint_LDM\\Plots\\NonlinearAE.png',
+    resolve_output_path("figures/NonlinearAE.png"),
     dpi=300,
     bbox_inches='tight'
 )

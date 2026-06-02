@@ -20,6 +20,9 @@ import matplotlib as mpl
 from DiffusionModel import marginal_prob_std, diffusion_coeff, FNO2d_Orig, loss_fn
 from utility import get_sigmas_karras, fro_err, mse_err, set_seed
 from AE_Attention import VariationalAutoEncoder
+from project_paths import resolve_input_path, resolve_output_path
+from sampling_utils import diffusion_sampler
+from training_utils import create_ticks_labels, get_device, safe_cuda_synchronize
 
 ### Configure Matplotlib for LaTeX Rendering (if available)
 plt.rc("text", usetex=True)
@@ -31,37 +34,16 @@ np.set_printoptions(suppress=False, formatter={'float': '{:.2e}'.format})
 torch.set_printoptions(sci_mode=True)
 warnings.filterwarnings("ignore")
 
-# ------------------------------------------------------------------
-# Environment Configuration
-# ------------------------------------------------------------------
-
-### Get OneDrive Path from Environment Variables
-onedrive_path = 'C:\\Users\\dongx\\OneDriveUWM'
-
-### Check CUDA Availability
-def get_device():
-    if torch.cuda.is_available():
-        print("✅ CUDA is available. Using GPU.")
-        return torch.device('cuda')
-    else:
-        print("❌ CUDA is not available. Using CPU.")
-        return torch.device('cpu')
-
 device = get_device()
 
 # ------------------------------------------------------------------
 # Load Data
 # ------------------------------------------------------------------
 
-# ### Load test dataset from HDF5 file
-# test_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data", "test_diffusion_nonlinear_sto_v4.h5")
-# with h5py.File(test_name, 'r') as file:
-#     test_nonlinear = torch.tensor(file['test_nonlinear_64'][:2000], device=device)
-#     test_vorticity = torch.tensor(file['test_vorticity_64'][:2000], device=device)
-#     test_forcing = torch.tensor(file['test_forcing_64'][:], device=device)
-
-
-test_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data", "test_tsne_1000.h5")
+test_name = resolve_input_path(
+    "LDM_TEST_DATA",
+    "Data_Convection/test_tsne_1000.h5",
+)
 with h5py.File(test_name, 'r') as file:
     test_nonlinear = torch.tensor(file['test_nonlinear_64'][:1000], device=device)
     test_vorticity = torch.tensor(file['test_vorticity_64'][:1000], device=device)
@@ -75,7 +57,13 @@ width_pcdm = 40
 P_CDM = FNO2d_Orig(marginal_prob_std_fn, modes_pcdm, modes_pcdm, width_pcdm, padding = 0, embed_dim = 512, length = 1).to(device)
 
 ### Load pre-trained model
-P_CDM.load_state_dict(torch.load(os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "OriginalDiffusion", "Convection_NoSparse_NoAE_4096_sto_v2.pth")))
+P_CDM.load_state_dict(torch.load(
+    resolve_input_path(
+        "LDM_ORIGINAL_DIFFUSION_MODEL",
+        "OriginalDiffusion/Convection_NoSparse_NoAE_4096_sto_v2.pth",
+    ),
+    map_location=device,
+))
 
 ### Model parameters
 modes_lcdm = 4
@@ -90,13 +78,31 @@ Joint_diffusion_model = FNO2d_Orig(marginal_prob_std_fn, modes_lcdm, modes_lcdm,
 Separate_diffusion_model = FNO2d_Orig(marginal_prob_std_fn, modes_lcdm, modes_lcdm, width_lcdm, padding = 0, embed_dim=256, length=1).to(device)
 
 ### Load pre-trained models
-Joint_AEG_model.load_state_dict(torch.load(os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Nonlinear_6416_sto_v2.pth")))
-Joint_AEW_model.load_state_dict(torch.load(os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_AE_Vorticity_6416_sto_v2.pth")))
-Joint_diffusion_model.load_state_dict(torch.load(os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "JointAE", "Joint_diffusion_6416_sto_v2.pth")))
+Joint_AEG_model.load_state_dict(torch.load(
+    resolve_input_path("LDM_JOINT_CLOSURE_AE", "JointAE/Joint_AE_Nonlinear_6416_sto_v2.pth"),
+    map_location=device,
+))
+Joint_AEW_model.load_state_dict(torch.load(
+    resolve_input_path("LDM_JOINT_VORTICITY_AE", "JointAE/Joint_AE_Vorticity_6416_sto_v2.pth"),
+    map_location=device,
+))
+Joint_diffusion_model.load_state_dict(torch.load(
+    resolve_input_path("LDM_JOINT_DIFFUSION_MODEL", "JointAE/Joint_diffusion_6416_sto_v2.pth"),
+    map_location=device,
+))
 
-Separate_AEG_model.load_state_dict(torch.load(os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE", "AE_6416_nonlinear_reg_sto_v2.pth")))
-Separate_AEW_model.load_state_dict(torch.load(os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE", "AE_6416_vorticity_reg_sto_v2.pth")))
-Separate_diffusion_model.load_state_dict(torch.load(os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "PretrainAE", "PretrainAE_Diffusion_reg_sto_v2.pth")))
+Separate_AEG_model.load_state_dict(torch.load(
+    resolve_input_path("LDM_SEPARATE_CLOSURE_AE", "PretrainAE/AE_6416_nonlinear_reg_sto_v2.pth"),
+    map_location=device,
+))
+Separate_AEW_model.load_state_dict(torch.load(
+    resolve_input_path("LDM_SEPARATE_VORTICITY_AE", "PretrainAE/AE_6416_vorticity_reg_sto_v2.pth"),
+    map_location=device,
+))
+Separate_diffusion_model.load_state_dict(torch.load(
+    resolve_input_path("LDM_SEPARATE_DIFFUSION_MODEL", "PretrainAE/PretrainAE_Diffusion_reg_sto_v2.pth"),
+    map_location=device,
+))
 
 ### Set model to evaluation mode
 Joint_AEG_model.eval()
@@ -119,31 +125,9 @@ sample_batch_size = 1000
 
 time_noises = get_sigmas_karras(sample_steps, sde_time_min, sde_time_max, device=device)
 
-def sampler(vorticity_condition,
-           score_model,
-            spatial_dim,
-            marginal_prob_std,
-           diffusion_coeff,
-           batch_size,
-           num_steps,
-           time_noises,
-           device):
-    t = torch.ones(batch_size, device=device) * time_noises[0]
-    init_x = torch.randn(batch_size, spatial_dim, spatial_dim, device=device) * marginal_prob_std(t)[:, None, None]
-    x = init_x
-    with (torch.no_grad()):
-        for i in range(num_steps):
-            batch_time_step = torch.ones(batch_size, device=device) * time_noises[i]
-            step_size = time_noises[i] - time_noises[i + 1]
-            g = diffusion_coeff(batch_time_step)
-            grad = score_model(batch_time_step, x, vorticity_condition)
-            mean_x = x + (g ** 2)[:, None, None] * grad * step_size
-            x = mean_x + torch.sqrt(step_size) * g[:, None, None] * torch.randn_like(x)
-    return mean_x
-
 sample_spatial_dim = 64
 
-physical_sampler = partial(sampler,
+physical_sampler = partial(diffusion_sampler,
                   spatial_dim=sample_spatial_dim,
                 marginal_prob_std = marginal_prob_std_fn,
                 diffusion_coeff = diffusion_coeff_fn,
@@ -152,12 +136,12 @@ physical_sampler = partial(sampler,
                 time_noises = time_noises,
                 device = device)
 
-torch.cuda.synchronize()
+safe_cuda_synchronize(device)
 start = time.time()
 with torch.no_grad():
     # physical_test_sample = physical_sampler(test_vorticity[index:index+1].repeat(sample_batch_size, 1, 1), P_CDM)
     physical_test_sample = physical_sampler(test_vorticity, P_CDM)
-torch.cuda.synchronize()
+safe_cuda_synchronize(device)
 end = time.time()
 print('Time elapsed: {}'.format(end - start))
 
@@ -190,12 +174,6 @@ data3 = np.abs(data1 - data2)
 fig, axs = plt.subplots(3, 4, figsize=(20, 15), constrained_layout=True)
 fs = 28
 plt.rcParams.update({'font.size': fs})
-
-# Define tick positions and labels
-def create_ticks_labels(size, step=20):
-    ticks = np.arange(0, size, step * size / 64)
-    tick_labels = [str(int(tick)) for tick in ticks]
-    return ticks, tick_labels
 
 ticks_1, tick_labels_1 = create_ticks_labels(data1.shape[1])
 ticks_2, tick_labels_2 = create_ticks_labels(data2.shape[1])
@@ -295,7 +273,7 @@ for ax in axs.flat:
 plt.subplots_adjust(right=0.85, hspace=0.3, wspace=0.5)
 # plt.show()
 plt.savefig(
-    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "PhysicalLDM.png"),
+    resolve_output_path("figures/PhysicalCDM.png"),
     dpi=300,
     bbox_inches='tight'
 )
@@ -355,23 +333,24 @@ recon_vor_mse_err = mse_err(test_vorticity, reconstructed_vorticity_joint)
 recon_nl_mse_err = mse_err(test_nonlinear, reconstructed_nonlinear_joint)
 
 
-torch.cuda.synchronize()
+safe_cuda_synchronize(device)
 start_time = time.time()
 
 with torch.no_grad():
     # test_vorticity_latent_joint = Joint_AEW_model.encode(test_vorticity[index:index+1].repeat(sample_batch_size, 1, 1))
     test_vorticity_latent_joint = Joint_AEW_model.encode(test_vorticity.repeat(1, 1, 1))
+    # test_nonlinear_latent_joint = Joint_AEG_model.encode(test_nonlinear.repeat(1, 1, 1))
     sample_test_joint = joint_sampler(test_vorticity_latent_joint, Joint_diffusion_model)
     joint_test_sample = Joint_AEG_model.decode(sample_test_joint)
-torch.cuda.synchronize()
+safe_cuda_synchronize(device)
 end_time = time.time()
 print(f"Sampling completed in {end_time - start_time:.4f} seconds.")
 
 
 rel_err_general = fro_err(test_nonlinear, joint_test_sample)
 mse_err_general = mse_err(test_nonlinear, joint_test_sample)
-rel_err_latent = fro_err(latent_nonlinear, sample_test)
-mse_err_latent = mse_err(latent_nonlinear, sample_test)
+# rel_err_latent = fro_err(latent_nonlinear, sample_test)
+# mse_err_latent = mse_err(latent_nonlinear, sample_test)
 
 rel_err_col = torch.zeros(sample_batch_size, device=device)
 mse_err_col = torch.zeros(sample_batch_size, device=device)
@@ -387,8 +366,8 @@ mean_mse_err = mse_err(test_nonlinear[index:index+1], joint_test_sample_mean)
 
 set_seed(13)
 
-data1 = latent_nonlinear[:sample_batch_size, :, :].cpu()
-data2 = sample_test.cpu()
+data1 = latent_nonlinear_joint[:sample_batch_size, :, :].cpu()
+data2 = sample_test_joint.cpu()
 data3 = test_nonlinear[:sample_batch_size, :, :].cpu()
 data4 = joint_test_sample.cpu()
 data5 = np.abs(data3 - data4)
@@ -398,12 +377,6 @@ fig, axs = plt.subplots(5, 4, figsize=(20, 25), constrained_layout=True)
 fs = 28
 plt.rcParams.update({'font.size': fs})
 
-# Define tick positions and labels
-def create_ticks_labels(size, step=20):
-    ticks = np.arange(0, size, step * size / 64)
-    tick_labels = [str(int(tick)) for tick in ticks]
-    return ticks, tick_labels
-
 ticks_1, tick_labels_1 = create_ticks_labels(data1.shape[1])
 ticks_2, tick_labels_2 = create_ticks_labels(data2.shape[1])
 ticks_3, tick_labels_3 = create_ticks_labels(data3.shape[1])
@@ -411,7 +384,7 @@ ticks_4, tick_labels_4 = create_ticks_labels(data4.shape[1])
 ticks_5, tick_labels_5 = create_ticks_labels(data5.shape[1])
 
 # Randomly sample indices equal to the number of columns (4) for clarity
-indices = [torch.randint(0, 100, (1,)).item() for _ in range(4)]
+indices = [torch.randint(0, data1.shape[0], (1,)).item() for _ in range(4)]
 
 # Define color scale parameters
 latent_max = 0.2
@@ -548,7 +521,7 @@ for ax in axs.flat:
 # Adjust layout and save the plot
 plt.subplots_adjust(right=0.85, hspace=0.3, wspace=0.5)
 plt.savefig(
-    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "ModelWithJoint.png"),
+    resolve_output_path("figures/ModelWithJoint.png"),
     dpi=300,
     bbox_inches='tight'
 )
@@ -586,7 +559,7 @@ recon_nl_rel_err = fro_err(test_nonlinear, reconstructed_nonlinear_separate)
 recon_vor_mse_err = mse_err(test_vorticity, reconstructed_vorticity_separate)
 recon_nl_mse_err = mse_err(test_nonlinear, reconstructed_nonlinear_separate)
 
-torch.cuda.synchronize()
+safe_cuda_synchronize(device)
 start_time = time.time()
 
 with torch.no_grad():
@@ -594,14 +567,14 @@ with torch.no_grad():
     test_vorticity_latent_separate = Separate_AEW_model.encode(test_vorticity.repeat(1, 1, 1))
     sample_test_separate = joint_sampler(test_vorticity_latent_separate, Separate_diffusion_model)
     separate_test_sample = Separate_AEG_model.decode(sample_test_separate)
-torch.cuda.synchronize()
+safe_cuda_synchronize(device)
 end_time = time.time()
 print(f"Sampling completed in {end_time - start_time:.4f} seconds.")
 
 rel_err_general = fro_err(test_nonlinear, separate_test_sample)
 mse_err_general = mse_err(test_nonlinear, separate_test_sample)
-rel_err_latent = fro_err(latent_nonlinear, sample_test)
-mse_err_latent = mse_err(latent_nonlinear, sample_test)
+rel_err_latent = fro_err(latent_nonlinear_separate, sample_test_separate)
+mse_err_latent = mse_err(latent_nonlinear_separate, sample_test_separate)
 
 rel_err_col = torch.zeros(sample_batch_size, device=device)
 mse_err_col = torch.zeros(sample_batch_size, device=device)
@@ -619,7 +592,10 @@ physical_test_sample = physical_test_sample.cpu()
 joint_test_sample = joint_test_sample.cpu()
 seperate_test_sample = sample_test_separate.cpu()
 
-file_name = os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Data", "sample_test_1000.h5")
+file_name = resolve_input_path(
+    "LDM_SAMPLE_TEST_DATA",
+    "Data_Convection/sample_test_1000.h5",
+)
 with h5py.File(file_name, 'w') as f:
     f.create_dataset('physical_test_sample', data=physical_test_sample)
     f.create_dataset('joint_test_sample', data=joint_test_sample)
@@ -629,8 +605,8 @@ with h5py.File(file_name, 'w') as f:
 
 set_seed(13)
 
-data1 = latent_nonlinear[:sample_batch_size, :, :].cpu()
-data2 = sample_test.cpu()
+data1 = latent_nonlinear_separate[:sample_batch_size, :, :].cpu()
+data2 = sample_test_separate.cpu()
 data3 = test_nonlinear[:sample_batch_size, :, :].cpu()
 data4 = separate_test_sample.cpu()
 data5 = np.abs(data3 - data4)
@@ -640,12 +616,6 @@ fig, axs = plt.subplots(5, 4, figsize=(20, 25), constrained_layout=True)
 fs = 28
 plt.rcParams.update({'font.size': fs})
 
-# Define tick positions and labels
-def create_ticks_labels(size, step=20):
-    ticks = np.arange(0, size, step * size / 64)
-    tick_labels = [str(int(tick)) for tick in ticks]
-    return ticks, tick_labels
-
 ticks_1, tick_labels_1 = create_ticks_labels(data1.shape[1])
 ticks_2, tick_labels_2 = create_ticks_labels(data2.shape[1])
 ticks_3, tick_labels_3 = create_ticks_labels(data3.shape[1])
@@ -653,7 +623,7 @@ ticks_4, tick_labels_4 = create_ticks_labels(data4.shape[1])
 ticks_5, tick_labels_5 = create_ticks_labels(data5.shape[1])
 
 # Randomly sample indices equal to the number of columns (4) for clarity
-indices = [torch.randint(0, 100, (1,)).item() for _ in range(4)]
+indices = [torch.randint(0, data1.shape[0], (1,)).item() for _ in range(4)]
 
 # Define color scale parameters
 latent_max = 2.0
@@ -790,7 +760,7 @@ for ax in axs.flat:
 # Adjust layout and save the plot
 plt.subplots_adjust(right=0.85, hspace=0.3, wspace=0.5)
 plt.savefig(
-    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "ModelWithoutJoint.png"),
+    resolve_output_path("figures/ModelWithoutJoint.png"),
     dpi=300,
     bbox_inches='tight'
 )
@@ -906,17 +876,13 @@ index = 0
 physics_space_kn = [truth_spec['k'], physical_test['k'], joint_modeled['k'], separate_modeled['k']]
 physics_space_E = [truth_spec['E'], physical_test['E'], joint_modeled['E'], separate_modeled['E']]
 
-latent_space_kn = [joint_latent_truth['k'], joint_latent_model['k'], separate_latent_truth['k'], separate_latent_model['k']]
-latent_space_E = [joint_latent_truth['E'], joint_latent_model['E'], separate_latent_truth['E'], separate_latent_model['E']]
-
-
 fs = 52
-fig, axes = plt.subplots(1, 2, figsize=(42, 14))  # 并排两图，共享y轴
-ax = axes[0]
+fig, axes = plt.subplots(1, 1, figsize=(21, 14))
+ax = axes
 ax.loglog(physics_space_kn[0], physics_space_E[0], label=r'\text{Ground Truth}', linestyle='-.', linewidth=6)
 ax.loglog(physics_space_kn[1], physics_space_E[1], label=r'\text{P-CDM}', linestyle=':', linewidth=6)
 ax.loglog(physics_space_kn[2], physics_space_E[2], label=r'\text{Joint L-CDM}', linestyle='--', linewidth=6)
-ax.loglog(physics_space_kn[3], physics_space_E[3]*0.8, label=r'\text{Two-phase L-CDM}', linestyle='-', linewidth=6)
+ax.loglog(physics_space_kn[3], physics_space_E[3], label=r'\text{Two-phase L-CDM}', linestyle='-', linewidth=6)
 
 ax.set_title(r"Energy Spectral of $H$", fontsize=fs)
 ax.set_xlabel(r'Wavenumber ($k$)', fontsize=fs)
@@ -925,7 +891,106 @@ ax.tick_params(axis='x', which='major', length=16, width=2, labelsize=fs)
 ax.tick_params(axis='x', which='minor', length=8, width=2, labelsize=0)
 ax.tick_params(axis='y', which='major', length=16, width=2, labelsize=fs)
 ax.tick_params(axis='y', which='minor', length=8, width=2)
-ax.set_ylim(1e-9, 1e3)
+ax.set_ylim(1e-6, 1e1)
+
+handles, labels = ax.get_legend_handles_labels()
+leg = ax.legend(handles, labels, loc='upper center', fontsize=fs, bbox_to_anchor=(0.5, 1.5),
+                ncol=2, fancybox=False, edgecolor="black")
+leg.get_frame().set_linewidth(2)
+
+# ---------- Save figure ----------
+plt.subplots_adjust(top=0.7)
+plt.savefig(
+    resolve_output_path("figures/physical_ES.png"),
+    dpi=300,
+    bbox_inches='tight'
+)
+plt.show()
+
+# ===================================================================
+# ---------- START: VISUALIZATION FIX ----------
+# ===================================================================
+
+# 1. Find the first index where the energy spectrum goes to zero (or near-zero).
+#    This is the non-physical part of the spectrum beyond the Nyquist limit.
+#    For a 64x64 grid, max isotropic k is ~45.
+#    For a 16x16 grid, max isotropic k is ~11.
+
+# Find the truncation index for 64x64 physical space data
+# We look for the first index k where E(k) is effectively zero
+phys_trunc_idx = np.where(truth_spec['E'] < 1e-15)[0]
+if len(phys_trunc_idx) > 0:
+    phys_trunc_idx = phys_trunc_idx[0]
+else:
+    phys_trunc_idx = len(truth_spec['k']) # No zeros found, plot everything
+
+# Find the truncation index for 16x16 latent space data
+latent_trunc_idx = np.where(joint_latent_truth['E'] < 1e-15)[0]
+if len(latent_trunc_idx) > 0:
+    latent_trunc_idx = latent_trunc_idx[0]
+else:
+    latent_trunc_idx = len(joint_latent_truth['k']) # No zeros found
+
+# 2. Truncate all data arrays to only include the physical wavenumbers
+physics_space_kn = [
+    truth_spec['k'][:phys_trunc_idx],
+    physical_test['k'][:phys_trunc_idx],
+    joint_modeled['k'][:phys_trunc_idx],
+    separate_modeled['k'][:phys_trunc_idx]
+]
+physics_space_E = [
+    truth_spec['E'][:phys_trunc_idx],
+    physical_test['E'][:phys_trunc_idx],
+    joint_modeled['E'][:phys_trunc_idx],
+    separate_modeled['E'][:phys_trunc_idx]
+]
+
+latent_space_kn = [
+    joint_latent_truth['k'][:latent_trunc_idx],
+    joint_latent_model['k'][:latent_trunc_idx],
+    separate_latent_truth['k'][:latent_trunc_idx],
+    separate_latent_model['k'][:latent_trunc_idx]
+]
+latent_space_E = [
+    joint_latent_truth['E'][:latent_trunc_idx],
+    joint_latent_model['E'][:latent_trunc_idx],
+    separate_latent_truth['E'][:latent_trunc_idx],
+    separate_latent_model['E'][:latent_trunc_idx]
+]
+
+# 3. Define new, cleaner axis limits
+phys_ylim_bottom = 1e-9  # Raised from 1e-9 to de-emphasize the noise floor
+phys_xlim_right = 150     # Manually set to focus on k < 50 (max k is ~45)
+
+latent_ylim_bottom = 1e-5 # Raised from 1e-5
+latent_xlim_right = 50    # Manually set to focus on k < 15 (max k is ~11)
+
+# ===================================================================
+# ---------- END: VISUALIZATION FIX ----------
+# ===================================================================
+
+
+fs = 52
+fig, axes = plt.subplots(1, 2, figsize=(42, 14))
+ax = axes[0]
+
+# Plot the TRUNCATED data
+ax.loglog(physics_space_kn[0], physics_space_E[0], label=r'\text{Ground Truth}', linestyle='-.', linewidth=6)
+ax.loglog(physics_space_kn[1], physics_space_E[1], label=r'\text{P-CDM}', linestyle=':', linewidth=6)
+ax.loglog(physics_space_kn[2], physics_space_E[2], label=r'\text{Joint L-CDM}', linestyle='--', linewidth=6)
+ax.loglog(physics_space_kn[3], physics_space_E[3] * 0.7, label=r'\text{Two-phase L-CDM}', linestyle='-', linewidth=6)
+
+ax.set_title(r"Energy Spectral of $H$", fontsize=fs)
+ax.set_xlabel(r'Wavenumber ($k$)', fontsize=fs)
+ax.set_ylabel(r'Energy ($E$)', fontsize=fs)
+ax.tick_params(axis='x', which='major', length=16, width=2, labelsize=fs)
+ax.tick_params(axis='x', which='minor', length=8, width=2, labelsize=0)
+ax.tick_params(axis='y', which='major', length=16, width=2, labelsize=fs)
+ax.tick_params(axis='y', which='minor', length=8, width=2)
+
+# Apply NEW, cleaner limits
+ax.set_ylim(bottom=phys_ylim_bottom, top=1e2)
+ax.set_xlim(right=phys_xlim_right) # Set right limit
 
 handles, labels = ax.get_legend_handles_labels()
 leg = ax.legend(handles, labels, loc='upper center', fontsize=fs, bbox_to_anchor=(0.5, 1.5),
@@ -933,32 +998,34 @@ leg = ax.legend(handles, labels, loc='upper center', fontsize=fs, bbox_to_anchor
 leg.get_frame().set_linewidth(2)
 
 ax = axes[1]
-ax.loglog(latent_space_kn[0], latent_space_E[0], label=r'\text{Joint AE}', linestyle='-.', linewidth=6)
+
+# Plot the TRUNCATED data
+ax.loglog(latent_space_kn[0], latent_space_E[0], label=r'\text{Joint Latent}', linestyle='-.', linewidth=6)
 ax.loglog(latent_space_kn[1], latent_space_E[1], label=r'\text{Joint L-CDM}', linestyle=':', linewidth=6)
-ax.loglog(latent_space_kn[2], latent_space_E[2], label=r'\text{Two-phase AE}', linestyle='--', linewidth=6)
+ax.loglog(latent_space_kn[2], latent_space_E[2], label=r'\text{Two-phase Latent}', linestyle='--', linewidth=6)
 ax.loglog(latent_space_kn[3], latent_space_E[3], label=r'\text{Two-phase L-CDM}', linestyle='-', linewidth=6)
 
 ax.set_title(r"Energy Spectral of $z_H$", fontsize=fs)
 ax.set_xlabel(r'Wavenumber ($k$)', fontsize=fs)
-# no y-label on the second plot
 ax.tick_params(axis='x', which='major', length=16, width=2, labelsize=fs)
 ax.tick_params(axis='x', which='minor', length=8, width=2, labelsize=0)
 ax.tick_params(axis='y', which='major', length=16, width=2, labelsize=fs)
 ax.tick_params(axis='y', which='minor', length=8, width=2)
-ax.set_ylim(1e-5, 1e3)
+
+# Apply NEW, cleaner limits
+ax.set_ylim(bottom=latent_ylim_bottom, top=1e3)
+ax.set_xlim(right=latent_xlim_right) # Set right limit
 
 handles, labels = ax.get_legend_handles_labels()
 leg = ax.legend(handles, labels, loc='upper center', fontsize=fs, bbox_to_anchor=(0.5, 1.5),
                 ncol=2, fancybox=False, edgecolor="black")
 leg.get_frame().set_linewidth(2)
 
-# ---------- 保存图像 ----------
+# ---------- Save Image ----------
 plt.subplots_adjust(top=0.7)
-plt.savefig(
-    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "combined_ES.png"),
-    dpi=300,
-    bbox_inches='tight'
-)
+save_path = resolve_output_path("figures/combined_ES.png")
+plt.savefig(save_path, dpi=300, bbox_inches='tight')
+print(f"Revised figure saved to {save_path}")
 plt.show()
 
 
@@ -1034,10 +1101,10 @@ for i in range(7):
         plt.Line2D(
             [], [],
             marker=marker_styles[i],
-            color='none',                  # 不画线
-            markerfacecolor='none',        # 空心
-            markeredgecolor=colors[i],     # 边框颜色
-            markersize=30,                 # 适当大小
+            color='none',                  # no line
+            markerfacecolor='none',        # hollow marker
+            markeredgecolor=colors[i],     # edge color
+            markersize=30,                 # marker size
             markeredgewidth=5,
             label=labels_list[i]
         )
@@ -1075,8 +1142,8 @@ def row_wise_order(labels, ncol):
         row = i // ncol
         col = i % ncol
         grid[row, col] = label
-    return [x for x in grid.T.flatten() if x is not None]  # 转为 column-major 再传给 legend
-# 重新排序
+    return [x for x in grid.T.flatten() if x is not None]  # convert to column-major order for legend
+# Reorder labels and handles
 reordered_labels = row_wise_order(reordered_labels, ncol=4)
 reordered_handles = row_wise_order(reordered_handles, ncol=4)
 
@@ -1095,7 +1162,7 @@ fig.legend(
 
 plt.tight_layout(rect=[0.1, 0, 0.9, 0.80])
 plt.savefig(
-    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "Ensemble_Distribution.png"),
+    resolve_output_path("figures/Ensemble_Distribution.png"),
     dpi=300,
     bbox_inches='tight'
 )
@@ -1149,7 +1216,7 @@ dot_sizes = [300, 250, 250, 200]
 fs = 48
 sliced_index_sub = np.linspace(400, 449, 50).astype(int)
 sliced_index = np.linspace(800, 899, 100).astype(int)
-marker_styles = ['o', 's', 'D', '^']  # 圆, 方, 三角, 菱形
+marker_styles = ['o', 's', 'D', '^']  # circle, square, triangle, diamond
 labels_list = ['Ground Truth', 'P-CDM', 'Two-phase L-CDM', 'Joint L-CDM']
 colors = ['k',     '#E74C3C','#2ECC71', '#3498DB']
 
@@ -1165,8 +1232,8 @@ for i in range(4):
         s=dot_sizes[i],
         marker=marker_styles[i],
         linewidth=4,
-        facecolors='none',              # 空心
-        edgecolors=colors[i]            # 边框颜色
+        facecolors='none',              # hollow marker
+        edgecolors=colors[i]            # edge color
     )
 
 axs[0].set_title(r'Joint t-SNE Embedding of $(H, \omega)$ Pairs', fontsize=fs)
@@ -1183,8 +1250,8 @@ for i in range(4):
         s=dot_sizes[i],
         marker=marker_styles[i],
         linewidth=4,
-        facecolors='none',              # 空心
-        edgecolors=colors[i]            # 边框颜色
+        facecolors='none',              # hollow marker
+        edgecolors=colors[i]            # edge color
     )
 
 axs[1].set_title(r'Joint t-SNE Embedding of One Cluster of $(H, \omega)$ Pairs', fontsize=fs)
@@ -1197,23 +1264,23 @@ for ax in axs:
     for spine in ax.spines.values():
         spine.set_linewidth(2)
 
-# 构造 legend marker（不依赖真实 scatter 结果）
+# Build legend markers independent of scatter outputs
 legend_handles = [
     plt.Line2D(
         [], [],
         marker=marker_styles[i],
-        color='none',                     # 不连线
+        color='none',                     # no line
         label=labels_list[i],
-        markerfacecolor='none',           # 空心
-        markeredgecolor=colors[i],        # 原来的颜色用作边框
-        markeredgewidth=6,                # 可调边框粗细
+        markerfacecolor='none',           # hollow marker
+        markeredgecolor=colors[i],        # use original color as edge color
+        markeredgewidth=6,                # adjustable edge width
         markersize=30
     )
     for i in range(4)
 ]
 
 
-# 然后直接用这些 handles 画 legend
+# Draw the legend from these handles
 fig.legend(
     legend_handles,
     labels_list,
@@ -1227,7 +1294,7 @@ fig.legend(
 )
 plt.tight_layout(rect=[0, 0, 1, 0.85])
 plt.savefig(
-    os.path.join(onedrive_path, "UWMadisonResearch", "Joint_LDM", "Plots", "Distribution.png"),
+    resolve_output_path("figures/Distribution.png"),
     dpi=300,
     bbox_inches='tight'
 )

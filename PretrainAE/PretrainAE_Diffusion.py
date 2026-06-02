@@ -1,10 +1,18 @@
 import sys
-sys.path.append('C:\\UWMadisonResearch\\Joint_LDM\\PretrainAE')
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import h5py
 import torch
 from torch.optim import Adam
 from functools import partial
 from tqdm import trange
+from project_paths import resolve_input_path, resolve_output_path
+from sampling_utils import diffusion_sampler_with_score_error
+from training_utils import create_ticks_labels, get_device
 from utility import set_seed, fro_err, mse_err, get_sigmas_karras
 from DiffusionModel import (marginal_prob_std, diffusion_coeff, loss_fn, FNO2d_Orig)
 
@@ -26,37 +34,44 @@ plt.rcParams["text.latex.preamble"] = r"\usepackage{amsmath}"
 import warnings
 warnings.filterwarnings("ignore")
 
-# Check if CUDA is available
-if torch.cuda.is_available():
-    print("CUDA is available.")
-    device = torch.device('cuda')
-else:
-    print("CUDA is not available.")
-    device = torch.device('cpu')
+device = get_device()
 
 # Load the data
 
-train_name = 'C:\\Users\\dongx\\OneDriveUWM\\UWMadisonResearch\\Joint_LDM\\Data\\train_diffusion_nonlinear_sto_v2.h5'
+train_name = resolve_input_path(
+    "LDM_LES_DATA",
+    "LES_NSE/navier_stokes_LES_4096_1e-3.h5",
+)
 with h5py.File(train_name, 'r') as file:
-    train_vorticity = torch.tensor(file['train_vorticity_64'][:], device=device)
-    train_nonlinear = torch.tensor(file['train_nonlinear_64'][:], device=device)
+    train_vorticity = torch.tensor(file['filtered_vorticity'][:40000], device=device)
+    train_nonlinear = torch.tensor(file['closure_term'][:40000], device=device)
 
-test_name = 'C:\\Users\\dongx\\OneDriveUWM\\UWMadisonResearch\\Joint_LDM\\Data\\test_diffusion_nonlinear_sto_v2.h5'
+test_name = resolve_input_path(
+    "LDM_LES_TEST_DATA",
+    "LES_NSE/navier_stokes_LES_4096_1e-3.h5",
+)
 with h5py.File(test_name, 'r') as file:
-    test_vorticity = torch.tensor(file['test_vorticity_64'][:], device=device)
-    test_nonlinear = torch.tensor(file['test_nonlinear_64'][:], device=device)
+    test_vorticity = torch.tensor(file['filtered_vorticity'][::100], device=device)
+    test_nonlinear = torch.tensor(file['closure_term'][::100], device=device)
 
 
 convection_AE = VariationalAutoEncoder().to(device)
-convection_AE.load_state_dict(torch.load('C:\\Users\\dongx\\OneDriveUWM\\UWMadisonResearch\\Joint_LDM\\PretrainAE\\AE_6416_nonlinear_sto_v2_noKL.pth'))
-
+convection_AE_path = resolve_input_path(
+    "LDM_PRETRAINED_CLOSURE_AE",
+    "PretrainAE/PretrainAE_LESTerms/PretrainAE_6416_LESClosure_v2.pth",
+)
+convection_AE.load_state_dict(torch.load(convection_AE_path, map_location=device))
 vorticity_AE = VariationalAutoEncoder().to(device)
-vorticity_AE.load_state_dict(torch.load('C:\\Users\\dongx\\OneDriveUWM\\UWMadisonResearch\\Joint_LDM\\PretrainAE\\AE_6416_vorticity_sto_v2_noKL.pth'))
+vorticity_AE_path = resolve_input_path(
+    "LDM_PRETRAINED_VORTICITY_AE",
+    "PretrainAE/PretrainAE_LESTerms/Joint_AE_Vorticity_6416.pth",
+)
+vorticity_AE.load_state_dict(torch.load(vorticity_AE_path, map_location=device))
 
 # File to store the encoded outputs.
-filename = r'C:\\Users\\dongx\\OneDriveUWM\\UWMadisonResearch\\Joint_LDM\Data\train_diffusion_nonlinear_encoded_sto_v2.h5'
+filename = resolve_output_path("LES_NSE/train_encoded_navier_stokes_LES_4096_1e-3.h5")
 batch_size = 1000
-total_samples = 18000
+total_samples = 40000
 
 # Determine the shape of one encoded sample.
 with torch.no_grad():
@@ -125,9 +140,9 @@ print("All batches appended successfully.")
 
 
 # File to store the encoded outputs.
-filename = r'C:\\Users\\dongx\\OneDriveUWM\\UWMadisonResearch\\Joint_LDM\Data\test_diffusion_nonlinear_encoded_sto_v2.h5'
-batch_size = 1000
-total_samples = 2000
+filename = resolve_output_path("LES_NSE/test_encoded_navier_stokes_LES_4096_1e-3.h5")
+batch_size = 500
+total_samples = 500
 
 # Determine the shape of one encoded sample.
 with torch.no_grad():
@@ -206,19 +221,25 @@ print("All batches appended successfully.")
 # test_vorticity_encoded = torch.tensor(test_vorticity_encoded, device=device)
 
 
-encoded_train_name = 'C:\\UWMadisonResearch\\Joint_LDM\\Data\\train_diffusion_nonlinear_encoded_sto_v2.h5'
+encoded_train_name = resolve_input_path(
+    "LDM_ENCODED_TRAIN_DATA",
+    "LES_NSE/train_encoded_navier_stokes_LES_4096_1e-3.h5",
+)
 with h5py.File(encoded_train_name, 'r') as file:
     train_vorticity_encoded = torch.tensor(file['train_vorticity_encoded'][:], device=device)
     train_nonlinear_encoded = torch.tensor(file['train_nonlinear_encoded'][:], device=device)
 
-encoded_test_name = 'C:\\UWMadisonResearch\\\Joint_LDM\\Data\\test_diffusion_nonlinear_encoded_sto_v2.h5'
+encoded_test_name = resolve_input_path(
+    "LDM_ENCODED_TEST_DATA",
+    "LES_NSE/test_encoded_navier_stokes_LES_4096_1e-3.h5",
+)
 with h5py.File(encoded_test_name, 'r') as file:
     test_vorticity_encoded = torch.tensor(file['test_vorticity_encoded'][:], device=device)
     test_nonlinear_encoded = torch.tensor(file['test_nonlinear_encoded'][:], device=device)
 
 train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(train_nonlinear_encoded,
                                                                           train_vorticity_encoded),
-                                                                            batch_size=50, shuffle=True)
+                                                                            batch_size=200, shuffle=True)
 
 
 with torch.no_grad():
@@ -248,7 +269,7 @@ learning_rate = 0.001
 scheduler_step = 100
 scheduler_gamma = 0.5
 
-model = FNO2d_Orig(marginal_prob_std_fn, modes, modes, width, embed_dim=256, length=1).cuda()
+model = FNO2d_Orig(marginal_prob_std_fn, modes, modes, width, embed_dim=256, length=1).to(device)
 optimizer = Adam(model.parameters(), lr=learning_rate)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step, gamma=scheduler_gamma)
 
@@ -263,7 +284,7 @@ for epoch in tqdm_epoch:
     avg_loss = 0.
     num_items = 0
     for x, w in train_loader:
-        x, w = x.cuda(), w.cuda()
+        x, w = x.to(device), w.to(device)
         x = x.float()
         w = w.float()
         optimizer.zero_grad()
@@ -281,91 +302,71 @@ for epoch in tqdm_epoch:
     loss_history.append(avg_loss_epoch)
     # rel_err_history.append(relative_loss_epoch)
     tqdm_epoch.set_description('Average Loss: {:5f}'.format(avg_loss / num_items))
-torch.save(model.state_dict(), 'PretrainAE\\PretrainAE_Diffusion_reg_sto_v2.pth')
+diffusion_model_path = resolve_output_path("PretrainAE/PretrainAE_LESTerms/PretrainAE_Diffusion_LESClosure.h5")
+torch.save(model.state_dict(), diffusion_model_path)
 
 
-model.load_state_dict(torch.load('PretrainAE\\PretrainAE_Diffusion_reg_sto.pth'))
+model.load_state_dict(torch.load(diffusion_model_path, map_location=device))
 
 sde_time_min = 1e-3
-sde_time_max = 0.1
-sample_steps = 10
+sde_time_max = 0.4
+sample_steps = 100
 sample_batch_size = 100
 
 time_noises = get_sigmas_karras(sample_steps, sde_time_min, sde_time_max, device=device)
 
-time_noises = torch.linspace(sde_time_max, 0, sample_steps+1, device=device)
-
-def sampler(target,
-           vorticity_condition,
-           score_model,
-            spatial_dim,
-            marginal_prob_std,
-           diffusion_coeff,
-           batch_size,
-           num_steps,
-           time_noises,
-           device):
-    t = torch.ones(batch_size, device=device) * time_noises[0]
-    init_x = torch.randn(batch_size, spatial_dim, spatial_dim, device=device) * marginal_prob_std(t)[:, None, None]
-    x = init_x
-    rel_err = torch.zeros(num_steps)
-    with (torch.no_grad()):
-        for i in range(num_steps):
-            batch_time_step = torch.ones(batch_size, device=device) * time_noises[i]
-            real_score = -(x - target) / marginal_prob_std(batch_time_step)[:, None, None] ** 2
-            step_size = time_noises[i] - time_noises[i + 1]
-            g = diffusion_coeff(batch_time_step)
-            grad = score_model(batch_time_step, x, vorticity_condition)
-
-            mean_x = x + (g ** 2)[:, None, None] * grad * step_size
-            x = mean_x + torch.sqrt(step_size) * g[:, None, None] * torch.randn_like(x)
-
-            score_err = fro_err(real_score, grad)
-            rel_err[i] = score_err
-    return mean_x, rel_err
+time_noises = torch.linspace(sde_time_max, 0, sample_steps + 1, device=device)
 
 sample_spatial_dim = 16
 
-sampler = partial(sampler,
-                  spatial_dim=sample_spatial_dim,
-                marginal_prob_std = marginal_prob_std_fn,
-                diffusion_coeff = diffusion_coeff_fn,
-                batch_size = sample_batch_size,
-                num_steps = sample_steps,
-                time_noises = time_noises,
-                device = device)
+sampler = partial(
+    diffusion_sampler_with_score_error,
+    spatial_dim=sample_spatial_dim,
+    marginal_prob_std=marginal_prob_std_fn,
+    diffusion_coeff=diffusion_coeff_fn,
+    batch_size=sample_batch_size,
+    num_steps=sample_steps,
+    time_noises=time_noises,
+    device=device,
+    error_fn=fro_err,
+)
 
-test_nonlinear_encoded_ensemble = test_nonlinear_encoded[0:1, ...].repeat(sample_batch_size, 1, 1)
-test_vorticity_encoded_ensemble = test_vorticity_encoded[0:1, ...].repeat(sample_batch_size, 1, 1)
+# test_nonlinear_encoded_ensemble = test_nonlinear_encoded[0:1, ...].repeat(sample_batch_size, 1, 1)
+# test_vorticity_encoded_ensemble = test_vorticity_encoded[0:1, ...].repeat(sample_batch_size, 1, 1)
 
 # set_seed(42)
 import time
 start = time.time()
 with torch.no_grad():
-    train_sample, rel_err_train = sampler(train_nonlinear_encoded[:sample_batch_size],
-                                    train_vorticity_encoded[:sample_batch_size].float(), model)
-    test_sample, rel_err_test = sampler(test_nonlinear_encoded_ensemble[:sample_batch_size],
-                                    test_vorticity_encoded_ensemble[:sample_batch_size].float(), model)
+    train_sample, rel_err_train = sampler(
+        train_nonlinear_encoded[:sample_batch_size],
+        train_vorticity_encoded[:sample_batch_size].float(),
+        model,
+    )
+    test_sample, rel_err_test = sampler(
+        test_nonlinear_encoded[:sample_batch_size],
+        test_vorticity_encoded[:sample_batch_size].float(),
+        model,
+    )
 end = time.time()
 print('Time elapsed: {}'.format(end - start))
 
 
 fro_sample_train = fro_err(train_nonlinear_encoded[:sample_batch_size], train_sample)
 mse_sample_train = mse_err(train_nonlinear_encoded[:sample_batch_size], train_sample)
-fro_sample = fro_err(test_nonlinear_encoded_ensemble[:sample_batch_size], test_sample)
-mse_sample = mse_err(test_nonlinear_encoded_ensemble[:sample_batch_size], test_sample)
+fro_sample = fro_err(test_nonlinear_encoded[:sample_batch_size], test_sample)
+mse_sample = mse_err(test_nonlinear_encoded[:sample_batch_size], test_sample)
 
-ensemble_mean = torch.mean(test_sample, dim=0)
-ensemble_std = torch.std(test_sample, dim=0)
+# ensemble_mean = torch.mean(test_sample, dim=0)
+# ensemble_std = torch.std(test_sample, dim=0)
 
-ensemble_fro_err = fro_err(test_nonlinear_encoded_ensemble[0:1], ensemble_mean.unsqueeze(0))
+# ensemble_fro_err = fro_err(test_nonlinear_encoded_ensemble[0:1], ensemble_mean.unsqueeze(0))
 
 start = time.time()
 with torch.no_grad():
     decoded_train_sample = convection_AE.decode(train_sample.float())
     decoded_truth_sample = convection_AE.decode(test_nonlinear_encoded[:sample_batch_size].float())
     decoded_sample = convection_AE.decode(test_sample.float())
-
     decoded_vorticity = vorticity_AE.decode(test_vorticity_encoded[:sample_batch_size].float())
 end = time.time()
 print('Time elapsed: {}'.format(end - start))
@@ -375,6 +376,7 @@ mse_decoded_train = mse_err(train_nonlinear[:sample_batch_size], decoded_train_s
 fro_decoded = fro_err(test_nonlinear[:sample_batch_size], decoded_sample)
 mse_decoded = mse_err(test_nonlinear[:sample_batch_size], decoded_sample)
 fro_vorticity = fro_err(test_nonlinear[:sample_batch_size], decoded_truth_sample)
+mse_vorticity = mse_err(test_nonlinear[:sample_batch_size], decoded_truth_sample)
 
 
 
@@ -392,12 +394,6 @@ fig, axs = plt.subplots(5, 4, figsize=(20, 25), constrained_layout=True)
 fs = 28
 plt.rcParams.update({'font.size': fs})
 
-# Define tick positions and labels
-def create_ticks_labels(size, step=20):
-    ticks = np.arange(0, size, step * size / 64)
-    tick_labels = [str(int(tick)) for tick in ticks]
-    return ticks, tick_labels
-
 ticks_1, tick_labels_1 = create_ticks_labels(data1.shape[1])
 ticks_2, tick_labels_2 = create_ticks_labels(data2.shape[1])
 ticks_3, tick_labels_3 = create_ticks_labels(data3.shape[1])
@@ -408,11 +404,11 @@ ticks_5, tick_labels_5 = create_ticks_labels(data5.shape[1])
 indices = [torch.randint(0, data1.shape[0], (1,)).item() for _ in range(4)]
 
 # Define color scale parameters
-latent_max = 2.0
-latent_min = -2.0
-max_val = 0.7
-min_val = -0.8
-err_max = 0.1
+latent_max = 3.0
+latent_min = -2.5
+max_val = 0.2
+min_val = -0.3
+err_max = 0.01
 err_min = 0
 cbar_ticks_latent = np.linspace(latent_min, latent_max, 6)
 cbar_ticks = np.linspace(min_val, max_val, 6)
@@ -525,7 +521,7 @@ for i, idx in enumerate(indices):
         cbar_contour = fig.colorbar(
             contour,
             ax=ax_contour,
-            format='%.2f'
+            format='%.3f'
         )
 
     ax_contour.set_title(r"\text{Error Contour }" + str(j + 1))
@@ -541,9 +537,9 @@ for ax in axs.flat:
 
 # Adjust layout and save the plot
 plt.subplots_adjust(right=0.85, hspace=0.3, wspace=0.5)
-plt.show()
+# plt.show()
 plt.savefig(
-    'C:\\UWMadisonResearch\\Joint_LDM\\Plots\\ModelWithoutJoint.png',
+    resolve_output_path("figures/LESModelWithoutJoint.png"),
     dpi=300,
     bbox_inches='tight'
 )
