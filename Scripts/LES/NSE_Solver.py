@@ -45,7 +45,7 @@ def get_velocity_from_vorticity(w_field, domain_size):
 
     return u, v
 
-# --- 2. New Function to Calculate TKE Spectrum ---
+# --- 2. Function to Calculate TKE Spectrum ---
 
 def get_TKE_spectrum(u, v, domain_size):
     """
@@ -97,12 +97,12 @@ class GaussianRF:
         self.device = device
         k_max = size // 2
 
-        # 1. Create integer wavenumbers (as before)
+        # 1. Create integer wavenumbers
         wavenumers_int = torch.cat((torch.arange(0, k_max), torch.arange(-k_max, 0)), 0).to(device).repeat(size, 1)
         k_x_int = wavenumers_int.transpose(0, 1)
         k_y_int = wavenumers_int
 
-        # 2. [NEW] Scale them to get physical wavenumbers
+        # 2. Scale them to get physical wavenumbers
         scaling_factor = 2.0 * math.pi / domain_size
         k_x = k_x_int * scaling_factor
         k_y = k_y_int * scaling_factor
@@ -192,7 +192,7 @@ def define_sharp_spectral_kernel(N_hr, domain_size, downsample_factor, device='c
 
     return sharp_kernel_h.unsqueeze(0) # Add batch dimension
 
-# --- New Helper Function for Spectral Truncation ---
+# --- Helper Function for Spectral Truncation ---
 def spectral_truncate(field_h_hr, N_cr):
     """
     Truncates a high-resolution field in rfft space to a low-resolution one.
@@ -270,7 +270,7 @@ def solve_les_diagnostics(w0_hr, f_hr, visc, r, T, delta_t, record_steps, fourie
         N_phys = u_x_phys * w_x_phys + u_y_phys * w_y_phys
         N_h = dealias_hr * torch.fft.rfft2(N_phys)
 
-        # [CHANGE] The time-stepping scheme now includes the linear friction term 'r'
+        # The time-stepping scheme now includes the linear friction term 'r'
         denominator = 1.0 + 0.5 * delta_t * (visc * lap_hr + r)
         numerator = (1.0 - 0.5 * delta_t * (visc * lap_hr + r)) * w_h - delta_t * N_h + delta_t * f_h
         w_h = numerator / denominator
@@ -307,7 +307,7 @@ def solve_les_diagnostics(w0_hr, f_hr, visc, r, T, delta_t, record_steps, fourie
 
 def solve_deterministic_simulation(w0, f, visc, r, T, delta_t, record_steps, domain_size):
     """
-    [REVISED] Runs a standard deterministic simulation and saves snapshots
+    Runs a standard deterministic simulation and saves snapshots
     at the exact indices specified by snapshot_indices.
     """
     L = domain_size
@@ -354,7 +354,7 @@ def solve_deterministic_simulation(w0, f, visc, r, T, delta_t, record_steps, dom
             sol_history[..., c_record:] = float('nan')
             break
 
-        # [CHANGE] Save the state if the current step is in our target indices
+        # Save the state if the current step is in our target indices
         if j % record_time == 0 and c_record < record_steps:
             sol_history[..., c_record] = torch.fft.irfft2(w_h, s=(N, N))
             c_record += 1
@@ -388,7 +388,7 @@ def solve_coarse_with_closure(w0_cr, f_cr, visc, r, T, delta_t, record_steps, cl
         if j % record_time == 0 and c_closure < closure_history_cr.shape[1]:
             Pi_phys = closure_history_cr[:, c_closure, ...]
             if torch.isnan(Pi_phys).any():
-                # Handle NaN logic as before
+                # Handle NaN logic
                 break
             current_closure_h = torch.fft.rfft2(Pi_phys)
             c_closure += 1
@@ -401,13 +401,13 @@ def solve_coarse_with_closure(w0_cr, f_cr, visc, r, T, delta_t, record_steps, cl
         N_h = dealias * torch.fft.rfft2(u_x_phys * w_x_phys + u_y_phys * w_y_phys)
         N_h_corrected = N_h + current_closure_h
 
-        # [CHANGE] The time-stepping scheme now includes the linear friction term 'r'
+        # The time-stepping scheme now includes the linear friction term 'r'
         denominator = 1.0 + 0.5 * delta_t * (visc * lap + r)
         numerator = (1.0 - 0.5 * delta_t * (visc * lap + r)) * w_h - delta_t * N_h_corrected + delta_t * f_h
         w_h = numerator / denominator
 
         if torch.isnan(w_h).any():
-            # Handle NaN logic as before
+            # Handle NaN logic
             break
 
         if j % record_time == 0 and c_record < record_steps:
@@ -420,7 +420,7 @@ def solve_les_with_model(
     w0_cr, f_cr, visc, r, T, delta_t, snapshot_indices, domain_size,
     score_model, sampler_fn, sample_every_n_steps=10
 ):
-    """[REVISED] Saves snapshots at the exact indices specified by snapshot_indices."""
+    """ Saves snapshots at the exact indices specified by snapshot_indices."""
     L, N_cr, device, batch_size = domain_size, w0_cr.shape[-1], w0_cr.device, w0_cr.shape[0]
 
     # ... (Wavenumber and dealiasing setup is unchanged) ...
@@ -467,7 +467,7 @@ def solve_les_with_deterministic_model(
     w0_cr, f_cr, visc, r, T, delta_t, snapshot_indices, domain_size,
     model, sample_every_n_steps=10
 ):
-    """[REVISED] Saves snapshots at the exact indices specified by snapshot_indices."""
+    """ Saves snapshots at the exact indices specified by snapshot_indices."""
     L, N_cr, device, batch_size = domain_size, w0_cr.shape[-1], w0_cr.device, w0_cr.shape[0]
 
     # ... (Wavenumber and dealiasing setup is unchanged) ...
@@ -522,7 +522,7 @@ def define_test_filter(N, domain_size, device='cpu'):
 
 def solve_les_dynamic_smagorinsky(w0_cr, f_cr, visc, r, T, delta_t, snapshot_indices, domain_size):
     """
-    [REVISED] Runs a coarse-grid LES using the dynamic Smagorinsky model and
+    Runs a coarse-grid LES using the dynamic Smagorinsky model and
     saves snapshots at the exact indices specified by snapshot_indices.
     """
     L = domain_size
@@ -548,11 +548,11 @@ def solve_les_dynamic_smagorinsky(w0_cr, f_cr, visc, r, T, delta_t, snapshot_ind
     w_h, f_h = torch.fft.rfft2(w0_cr), torch.fft.rfft2(f_cr)
     steps = int(T/delta_t)
 
-    # [CHANGE] Setup history tensors based on the number of indices to save
+    # Setup history tensors based on the number of indices to save
     num_snapshots = len(snapshot_indices)
     sol_history = torch.zeros(w0_cr.shape[0], N_cr, N_cr, num_snapshots, device=w0_cr.device)
 
-    # [CHANGE] Use a set for fast 'in' check and a counter for saving
+    # Use a set for fast 'in' check and a counter for saving
     snapshot_indices_set = set(snapshot_indices)
     c_record = 0
 
@@ -614,7 +614,7 @@ def solve_les_dynamic_smagorinsky(w0_cr, f_cr, visc, r, T, delta_t, snapshot_ind
             sol_history[..., c_record:] = float('nan')
             break
 
-        # [CHANGE] Save the state if the current step is in our target indices
+        # Save the state if the current step is in our target indices
         if j in snapshot_indices_set:
             if c_record < num_snapshots:
                 sol_history[..., c_record] = torch.fft.irfft2(w_h, s=(N_cr, N_cr))

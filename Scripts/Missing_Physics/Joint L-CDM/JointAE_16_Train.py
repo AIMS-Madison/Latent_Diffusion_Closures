@@ -77,10 +77,6 @@ diffusion_model = FNO2d_Orig(
     length=1,
 ).to(device)
 
-# To initialize from pretrained weights, set an environment variable and load it here.
-# AEG_path = resolve_input_path("LDM_PRETRAINED_CLOSURE_AE", "PretrainAE/AE_6416_vorticity_reg_sto_v5.pth")
-# AEG_model.load_state_dict(torch.load(AEG_path, map_location=device))
-
 optimizer = Adam(
     list(diffusion_model.parameters()) + list(AEW_model.parameters()) + list(AEG_model.parameters()),
     lr=learning_rate,

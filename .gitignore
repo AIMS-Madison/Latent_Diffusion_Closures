@@ -1,38 +1,60 @@
-# Python caches
+# Python caches and test artifacts
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.coverage
+htmlcov/
 
-# IDE and editor files
+# Local environments and editor settings
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
 .idea/
 .vscode/
+.DS_Store
+Thumbs.db
 
 # Notebook working files
 *.ipynb
+!running_demo.ipynb
 .ipynb_checkpoints/
 
-# Data, checkpoints, and generated arrays
+# Local simulation data; keep Data/Data_Generation source code trackable
+Data/Data_LES/
+Data/Data_MissingPhysics/
 *.h5
 *.hdf5
-*.pth
-*.pt
-*.ckpt
 *.npy
 *.npz
 *.pkl
 *.pickle
+*.mat
+*.nc
+*.zarr/
 
-# Generated figures and reports
+# Generated figures, reports, and run outputs
 *.png
 *.jpg
 *.jpeg
+*.gif
 *.pdf
 *.svg
+*.mp4
+*.avi
 figures/
+graphs/
 plots/
 outputs/
 results/
 runs/
+checkpoints/
+wandb/
+lightning_logs/
 
 # Logs
 *.log
+
+# Model weights (*.pth, *.pt, *.ckpt) are tracked with Git LFS.

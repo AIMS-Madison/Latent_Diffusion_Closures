@@ -29,26 +29,25 @@ device = get_device()
 
 # Load the data
 train_name = resolve_input_path(
-    "LDM_LES_DATA",
-    "LES_NSE/navier_stokes_LES_4096_1e-3.h5",
+    "LDM_TRAIN_DATA",
+    "Data_Convection/train_diffusion_nonlinear_sto_v2.h5",
 )
 test_name = resolve_input_path(
-    "LDM_LES_TEST_DATA",
-    "LES_NSE/navier_stokes_LES_4096_1e-3.h5",
+    "LDM_TEST_DATA",
+    "Data_Convection/test_diffusion_nonlinear_sto_v2.h5",
 )
 
 with h5py.File(train_name, 'r') as file:
-    train_closure = torch.tensor(file['closure_term'][:10000], device=device)
-    train_vorticity = torch.tensor(file['filtered_vorticity'][:10000], device=device)
+    train_nonlinear = torch.tensor(file['train_nonlinear_64'][:], device=device)
+    train_vorticity = torch.tensor(file['train_vorticity_64'][:], device=device)
 
 with h5py.File(test_name, 'r') as file:
-    test_closure = torch.tensor(file['closure_term'][::100], device=device)
-    test_vorticity = torch.tensor(file['filtered_vorticity'][::100], device=device)
+    test_nonlinear = torch.tensor(file['test_nonlinear_64'][:], device=device)
+    test_vorticity = torch.tensor(file['test_vorticity_64'][:], device=device)
 
-train_loader = torch.utils.data.DataLoader(
-    torch.utils.data.TensorDataset(train_closure, train_vorticity),
-    batch_size=100, shuffle=True
-)
+
+train_loader = torch.utils.data.DataLoader(train_nonlinear, batch_size=100, shuffle=True)
+test_loader = torch.utils.data.DataLoader(test_nonlinear, batch_size=10, shuffle=False)
 
 ################################
 ######## Model Training ########
@@ -86,14 +85,10 @@ for epoch in tqdm_epoch:
         optimizer.step()
         avg_loss += loss.item() * x.shape[0]
         num_items += x.shape[0]
-        # relative_loss = torch.mean(torch.norm(score - real_score, 2, dim=(1, 2))
-        #                            / torch.norm(real_score, 2, dim=(1, 2)))
-        # rel_err.append(relative_loss.item())
+
     scheduler.step()
     avg_loss_epoch = avg_loss / num_items
-    # relative_loss_epoch = np.mean(rel_err)
     loss_history.append(avg_loss_epoch)
-    # rel_err_history.append(relative_loss_epoch)
     tqdm_epoch.set_description('Average Loss: {:5f}'.format(avg_loss / num_items))
 
 savepath = resolve_output_path("OriginalDiffusion/LES_Closure_PCDM_1e-3.pth")
