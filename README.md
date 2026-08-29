@@ -1,4 +1,4 @@
-# Latent Diffusion Closures
+# Stochastic and Non-local Closure Modeling for Nonlinear Dynamical Systems via Latent Score-based Generative Models
 
 Official implementation of the paper ["Stochastic and Non-local Closure Modeling for Nonlinear Dynamical Systems via Latent Score-based Generative Models"](https://doi.org/10.1016/j.jcp.2026.115082).
 
