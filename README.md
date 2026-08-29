@@ -8,15 +8,19 @@ Xinghao Dong, Huchen Yang, and Jin-Long Wu
 
 ## Overview
 
-This repository contains the Missing Physics experiments for learning the unresolved nonlinear term in a two-dimensional stochastic vorticity equation. The code supports three conditional diffusion strategies:
+This repository implements the controlled Missing Physics benchmark for learning the unresolved nonlinear term in a two-dimensional stochastic vorticity equation. It includes P-CDM, conventional two-phase L-CDM, and Joint L-CDM training and evaluation, pretrained checkpoints, and a numerical-simulation demo.
 
-- **P-CDM:** score-based closure generation in the 64-by-64 physical space.
-- **Conventional L-CDM:** separate autoencoder pretraining followed by score-model training in a 16-by-16 latent space.
-- **Joint L-CDM:** joint optimization of the two autoencoders and latent score model.
+![Latent conditional diffusion framework for stochastic closure modeling](assets/latent-diffusion-closure-schematic.png)
 
-The runnable notebook demonstrates the vorticity-field comparison from Figure 7, the ensemble-mean relative-error diagnostic from Table 5, and the energy-spectrum comparison from Figure 10. Training and evaluation entry points report numeric results only; visualization is kept in the notebook.
+*Latent conditional diffusion framework for stochastic closure modeling (Figure 1 of the paper).*
 
-This release focuses on the controlled Missing Physics problem and includes its data generator, pretrained checkpoints, and running demo. The same training and evaluation workflow can be used for the under-resolved LES study in Appendix E, or adapted to other compatible datasets, by supplying the corresponding data and updating the data-loading configuration. Model and training hyperparameters may need to be retuned for a new dataset. The LES dataset and LES-specific pretrained checkpoints are not distributed in this repository.
+### Highlights
+
+- **Efficient latent sampling:** Compressing high-dimensional closure and state fields reduces conditional diffusion sampling cost, while conventional two-phase training can compromise closure-generation accuracy.
+- **Joint training:** End-to-end optimization aligns autoencoder reconstruction with score matching, improving generative accuracy while retaining latent-space efficiency.
+- **Fast ensemble simulation:** Coupling latent diffusion closures with numerical solvers accelerates ensemble simulation and uncertainty quantification while maintaining accuracy comparable to physical-space diffusion closures.
+
+This release focuses on the Missing Physics case. The Appendix E LES study follows the same workflow, but its data and checkpoints are not included; other datasets may require data-loader and hyperparameter adjustments.
 
 ## Repository Structure
 
@@ -97,7 +101,7 @@ python -m Scripts.missing_physics.evaluate --method conventional-lcdm --device c
 
 ## Running Demo
 
-Open [running_demo.ipynb](running_demo.ipynb) from the repository root and execute the cells in order. The notebook loads the supplied Missing Physics checkpoints, runs P-CDM and Joint L-CDM rollouts, and reports Figure 7-style vorticity fields, Table 5-style ensemble-mean relative errors, and Figure 10-style energy spectra. The notebook fixes the random seed at 42 to improve run-to-run repeatability. Because the sampling seeds used for the paper were not retained, results should be compared at the level of error magnitude and qualitative behavior rather than exact numerical values.
+Open [running_demo.ipynb](running_demo.ipynb) from the repository root and execute the cells in order. The notebook loads the supplied Missing Physics checkpoints, runs P-CDM and Joint L-CDM rollouts, and reports Figure 7-style vorticity fields, Table 5-style ensemble-mean relative errors, and Figure 10-style energy spectra. Results should be compared at the level of error magnitude and qualitative behavior rather than exact numerical values.
 
 ## Citation
 

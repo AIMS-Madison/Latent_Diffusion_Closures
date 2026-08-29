@@ -54,6 +54,10 @@ checkpoints/
 wandb/
 lightning_logs/
 
+# Paper schematic displayed in the README
+!assets/
+!assets/latent-diffusion-closure-schematic.png
+
 # Logs
 *.log
 
