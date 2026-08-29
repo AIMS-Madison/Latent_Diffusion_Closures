@@ -1,5 +1,3 @@
-"""Random fields used by the controlled Missing Physics simulation."""
-
 from __future__ import annotations
 
 import math

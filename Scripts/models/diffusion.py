@@ -1,5 +1,3 @@
-"""Conditional score model based on a two-branch Fourier neural operator."""
-
 from __future__ import annotations
 
 import math

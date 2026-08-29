@@ -1,5 +1,3 @@
-"""Encode Missing Physics datasets with separately trained autoencoders."""
-
 from __future__ import annotations
 
 import argparse

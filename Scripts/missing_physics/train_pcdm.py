@@ -1,5 +1,3 @@
-"""Train the physical-space conditional diffusion model on Missing Physics data."""
-
 from __future__ import annotations
 
 import argparse

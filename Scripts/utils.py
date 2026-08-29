@@ -1,5 +1,3 @@
-"""Runtime, reproducibility, metric, and spectral-analysis helpers."""
-
 from __future__ import annotations
 
 import os

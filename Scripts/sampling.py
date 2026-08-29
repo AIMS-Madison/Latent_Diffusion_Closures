@@ -1,5 +1,3 @@
-"""Reverse-SDE sampling for physical and latent conditional diffusion models."""
-
 from __future__ import annotations
 
 from collections.abc import Callable

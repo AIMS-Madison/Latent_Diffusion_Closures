@@ -1,5 +1,3 @@
-"""Evaluate P-CDM, conventional L-CDM, or joint L-CDM without plotting."""
-
 from __future__ import annotations
 
 import argparse

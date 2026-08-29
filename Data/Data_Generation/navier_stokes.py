@@ -1,5 +1,3 @@
-"""Pseudo-spectral simulator for the controlled Missing Physics problem."""
-
 from __future__ import annotations
 
 import math

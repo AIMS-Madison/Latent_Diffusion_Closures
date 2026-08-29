@@ -1,5 +1,3 @@
-"""Training routines shared by physical-space and latent score models."""
-
 from __future__ import annotations
 
 from collections.abc import Callable

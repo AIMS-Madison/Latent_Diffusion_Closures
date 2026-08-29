@@ -1,5 +1,3 @@
-"""Vorticity integrator for the partially known physics demonstration."""
-
 from __future__ import annotations
 
 import time

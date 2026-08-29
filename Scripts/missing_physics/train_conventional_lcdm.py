@@ -1,5 +1,3 @@
-"""Train L-CDM on fixed reconstruction-only latent representations."""
-
 from __future__ import annotations
 
 import argparse

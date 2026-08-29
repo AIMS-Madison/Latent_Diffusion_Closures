@@ -1,5 +1,3 @@
-"""Train one reconstruction-only autoencoder for the Missing Physics case."""
-
 from __future__ import annotations
 
 import argparse

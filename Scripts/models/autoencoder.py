@@ -1,5 +1,3 @@
-"""Convolutional autoencoder with residual and self-attention blocks."""
-
 from __future__ import annotations
 
 import torch
@@ -7,7 +5,6 @@ from torch import nn
 
 
 def initialize_weights(module: nn.Module) -> None:
-    """Initialize convolutional layers with Kaiming-normal weights."""
     if isinstance(module, (nn.Conv2d, nn.ConvTranspose2d)):
         nn.init.kaiming_normal_(
             module.weight,

@@ -1,5 +1,3 @@
-"""Numerical solvers and stochastic forcing used to generate training data."""
-
 from .navier_stokes import MissingPhysicsBatch, simulate_navier_stokes_2d
 from .random_forcing import GaussianRandomField
 

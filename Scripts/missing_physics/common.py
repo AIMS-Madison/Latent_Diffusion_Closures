@@ -1,5 +1,3 @@
-"""Shared data and checkpoint contracts for the Missing Physics experiments."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass

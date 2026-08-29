@@ -1,5 +1,3 @@
-"""Generate the controlled Missing Physics train/test datasets."""
-
 from __future__ import annotations
 
 import argparse

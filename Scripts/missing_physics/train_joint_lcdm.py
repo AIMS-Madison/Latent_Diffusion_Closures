@@ -1,5 +1,3 @@
-"""Jointly train both autoencoders and the latent conditional diffusion model."""
-
 from __future__ import annotations
 
 import argparse
