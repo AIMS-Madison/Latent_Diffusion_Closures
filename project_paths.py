@@ -1,4 +1,4 @@
-"""Path helpers for running scripts from any checkout location."""
+"""Repository-relative path helpers."""
 
 from __future__ import annotations
 
@@ -20,6 +20,20 @@ def get_project_root() -> Path:
 def project_path(*parts: str | os.PathLike[str]) -> Path:
     """Build an absolute path inside the repository."""
     return get_project_root().joinpath(*parts)
+
+
+def data_path(*parts: str | os.PathLike[str]) -> Path:
+    """Build a path below the data root."""
+    root = os.environ.get("LDM_DATA_ROOT")
+    data_root = Path(root).expanduser().resolve() if root else project_path("Data")
+    return data_root.joinpath(*parts)
+
+
+def model_path(*parts: str | os.PathLike[str]) -> Path:
+    """Build a path below the trained-model root."""
+    root = os.environ.get("LDM_MODEL_ROOT")
+    model_root = Path(root).expanduser().resolve() if root else project_path("Trained_Models")
+    return model_root.joinpath(*parts)
 
 
 def _coerce_relative_path(path: str | os.PathLike[str]) -> Path:
@@ -52,5 +66,12 @@ def resolve_output_path(
         resolved = Path(output_root).expanduser().resolve() / path_obj
     else:
         resolved = _coerce_relative_path(path_obj)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    return resolved
+
+
+def ensure_parent(path: str | os.PathLike[str]) -> Path:
+    """Resolve a path and create its parent directory."""
+    resolved = Path(path).expanduser().resolve()
     resolved.parent.mkdir(parents=True, exist_ok=True)
     return resolved
